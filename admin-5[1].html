@@ -1,0 +1,461 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>لوحة الإدارة — دار الكتاب العربي</title>
+<link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --paper:#f6efe2; --ink:#2a1c14; --maroon:#7a1f2b; --maroon-dark:#5a1620;
+    --gold:#b8863b; --line:#dccdab; --card:#fffdf8;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--paper);color:var(--ink);font-family:'Tajawal',sans-serif;}
+  header{background:var(--maroon);color:#fbe9d0;padding:16px 24px;display:flex;justify-content:space-between;align-items:center;}
+  header h1{font-size:1.2rem;margin:0;}
+  .wrap{max-width:1100px;margin:0 auto;padding:24px;}
+  #login-screen{max-width:360px;margin:80px auto;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:30px;text-align:center;}
+  #login-screen input{width:100%;padding:11px;border:1px solid var(--line);border-radius:8px;margin:14px 0;font-family:inherit;}
+  #login-screen button{width:100%;background:var(--maroon);color:#fff;border:none;border-radius:8px;padding:11px;font-weight:700;cursor:pointer;font-family:inherit;}
+  #login-error{color:var(--maroon);font-size:.85rem;display:none;}
+  #app{display:none;}
+  .toolbar{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:20px;}
+  .btn{background:var(--maroon);color:#fff;border:none;border-radius:8px;padding:10px 16px;font-weight:700;cursor:pointer;font-family:inherit;font-size:.88rem;}
+  .btn.secondary{background:var(--card);color:var(--ink);border:1px solid var(--line);}
+  .btn.danger{background:#a33;}
+  table{width:100%;border-collapse:collapse;background:var(--card);border-radius:8px;overflow:hidden;}
+  th,td{padding:9px 10px;border-bottom:1px solid var(--line);text-align:right;font-size:.86rem;}
+  th{background:var(--paper);color:#5c4a3a;}
+  td input,td select{width:100%;padding:6px;border:1px solid var(--line);border-radius:6px;font-family:inherit;font-size:.84rem;}
+  .row-actions button{font-size:.78rem;padding:5px 9px;border-radius:6px;border:1px solid var(--line);background:var(--card);cursor:pointer;margin-left:4px;}
+  .row-actions .del{color:#a33;border-color:#e2b3b3;}
+  .cat-block{margin-bottom:34px;}
+  .cat-block h2{font-size:1.05rem;color:var(--maroon-dark);display:flex;justify-content:space-between;align-items:center;}
+  #add-book-form{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:18px;margin-bottom:24px;}
+  #add-book-form h3{margin:0 0 12px;font-size:1rem;}
+  .form-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-bottom:12px;}
+  .form-grid input,.form-grid select{padding:9px;border:1px solid var(--line);border-radius:7px;font-family:inherit;}
+  .note{background:#fff6e0;border:1px solid #e6cf94;border-radius:8px;padding:12px 16px;font-size:.85rem;color:#6b551f;margin-bottom:20px;}
+  .stat{color:#8a7458;font-size:.85rem;margin-bottom:16px;}
+</style>
+</head>
+<body>
+
+<div id="login-screen">
+  <h2>دخول الإدارة</h2>
+  <p style="color:#8a7458;font-size:.85rem;">هذه الصفحة خاصة بمالك المكتبة فقط.</p>
+  <input type="email" id="admin-email" placeholder="البريد الإلكتروني" autocomplete="username">
+  <input type="password" id="admin-pass" placeholder="كلمة المرور" autocomplete="current-password" onkeydown="if(event.key==='Enter')tryLogin()">
+  <button onclick="tryLogin()">دخول</button>
+  <p id="login-error">البريد أو كلمة المرور غير صحيحة.</p>
+</div>
+
+<div id="app">
+  <header>
+    <h1>لوحة إدارة الكتب — دار الكتاب العربي</h1>
+    <button class="btn secondary" onclick="logout()">خروج</button>
+  </header>
+  <div class="wrap">
+
+    <div class="note">
+      ✅ هذه اللوحة مرتبطة بقاعدة بيانات <strong>Supabase</strong>: كل تعديل (إضافة، حذف، سعر، خصم، وصف…) يُحفظ مباشرة ويظهر للزبائن فورًا دون رفع أي ملف.
+      <br><br>📷 الصور: اكتب مسار الصورة كما في الاستضافة (مثال: <code>images/kitab1.jpg</code>) أو رابطًا كاملًا.
+      <br><br>🔍 صفحات SEO الثابتة (مجلد books وخريطة الموقع) ما زالت تُولَّد بزر "تنزيل صفحات الكتب" ثم تُرفع إلى الاستضافة بعد إضافة كتب جديدة.
+    </div>
+
+    <p class="stat" id="stats"></p>
+
+    <div class="toolbar">
+      <input id="admin-search" placeholder="🔍 ابحث عن كتاب بالعنوان أو المؤلف..." oninput="render()" style="flex:1;min-width:220px;padding:10px 14px;border:1px solid var(--line);border-radius:8px;font-family:inherit;font-size:.9rem;">
+    </div>
+
+    <div class="toolbar" style="background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 16px;align-items:center;">
+      <strong style="font-size:.9rem;">🏷️ خصم عام على كل الكتب:</strong>
+      <input id="global-discount" type="number" min="0" max="90" placeholder="مثال: 10" style="width:90px;padding:8px;border:1px solid var(--line);border-radius:7px;font-family:inherit;">
+      <span style="font-size:.85rem;color:#8a7458;">%</span>
+      <button class="btn secondary" onclick="saveGlobalDiscount()">تطبيق</button>
+      <span style="font-size:.78rem;color:#8a7458;">(الكتب التي لها خصم خاص بها تحتفظ بخصمها الخاص ولا تتأثر بهذا)</span>
+    </div>
+
+    <div class="toolbar">
+      <button class="btn" onclick="showAddForm()">+ إضافة كتاب جديد</button>
+      <button class="btn secondary" onclick="downloadDataFile()">⬇ تنزيل ملف البيانات (books-data.js)</button>
+      <button class="btn secondary" onclick="downloadSeoPages()">⬇ تنزيل صفحات الكتب + خريطة الموقع (SEO)</button>
+      <button class="btn secondary" onclick="document.getElementById('import-file').click()">⬆ استيراد نسخة سابقة</button>
+      <input type="file" id="import-file" accept=".js,.json" style="display:none" onchange="importFile(event)">
+    </div>
+
+    <div id="add-book-form" style="display:none;">
+      <h3>كتاب جديد</h3>
+      <div class="form-grid">
+        <input id="new-title" placeholder="عنوان الكتاب *">
+        <input id="new-author" placeholder="المؤلف">
+        <input id="new-isbn" placeholder="ISBN">
+        <input id="new-year" placeholder="سنة النشر">
+        <input id="new-price" placeholder="السعر (دج)" type="number">
+        <input id="new-cat" placeholder="التصنيف (موجود أو جديد) *" list="cat-options">
+        <datalist id="cat-options"></datalist>
+        <input id="new-image" placeholder="أسماء الصور، افصل بفاصلة إن وجد أكثر من صورة (مثال: images/front.jpg, images/back.jpg)">
+        <input id="new-discount" type="number" min="0" max="90" placeholder="خصم خاص بهذا الكتاب % (اختياري)">
+      </div>
+      <textarea id="new-desc" placeholder="وصف الكتاب (يظهر عند ضغط الزبون على الكتاب)" rows="3" style="width:100%;padding:9px;border:1px solid var(--line);border-radius:7px;font-family:inherit;margin-bottom:12px;"></textarea>
+      <button class="btn" onclick="addBook()">حفظ الكتاب</button>
+      <button class="btn secondary" onclick="hideAddForm()">إلغاء</button>
+    </div>
+
+    <div id="catalogue-editor"></div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="supabase-config.js"></script>
+<script>
+  const SITE_DOMAIN = "https://darelkitabelarabi.ifree.page"; // غيّر هذا إذا تغيّر رابط موقعك
+  const WHATSAPP_NUMBER = "213661917773";
+  const db = window.dkaDb;
+
+  async function tryLogin(){
+    const email = document.getElementById('admin-email').value.trim();
+    const password = document.getElementById('admin-pass').value;
+    const { error } = await db.auth.signInWithPassword({ email, password });
+    if(error){ document.getElementById('login-error').style.display = 'block'; return; }
+    showApp();
+  }
+  async function logout(){
+    await db.auth.signOut();
+    location.reload();
+  }
+  function showApp(){
+    document.getElementById('login-screen').style.display = 'none';
+    document.getElementById('app').style.display = 'block';
+    init();
+  }
+  (async () => {
+    const { data } = await db.auth.getSession();
+    if(data.session) showApp();
+  })();
+
+  // ---- DATA (Supabase) ----
+  let DATA = [];
+  let SETTINGS = { discountPercent: 0 };
+
+  async function loadData(){
+    const r = await window.dkaFetchCatalogue();
+    DATA = r.data;
+    SETTINGS = r.settings;
+  }
+
+  function showError(e){
+    console.error(e);
+    alert('تعذّر الحفظ: ' + (e && e.message ? e.message : e));
+  }
+
+  function rowOf(b, category){
+    return {
+      category,
+      isbn: b.isbn || '', author: b.author || '', title: b.title, year: b.year || '',
+      price: b.price == null ? null : Number(b.price),
+      discount: Number(b.discount) || 0,
+      images: Array.isArray(b.images) ? b.images : (b.image ? [b.image] : []),
+      description: b.description || ''
+    };
+  }
+
+  async function saveGlobalDiscount(){
+    const val = Number(document.getElementById('global-discount').value) || 0;
+    const { data, error } = await db.from('settings').upsert({ id: 1, discount_percent: val }).select();
+    if(error || !data || !data.length) return showError(error || 'لا تملك صلاحية التعديل');
+    SETTINGS.discountPercent = val;
+    alert(val > 0 ? `تم تفعيل خصم عام بنسبة ${val}% على كل الكتب (ما عدا الكتب التي لها خصم خاص بها).` : 'تم إلغاء الخصم العام.');
+  }
+
+  function findCat(name){ return DATA.find(c => c.name === name); }
+
+  function showAddForm(){
+    document.getElementById('add-book-form').style.display = 'block';
+    document.getElementById('cat-options').innerHTML = DATA.map(c => `<option value="${escAttr(c.name)}">`).join('');
+  }
+  function hideAddForm(){ document.getElementById('add-book-form').style.display = 'none'; }
+
+  async function addBook(){
+    const title = document.getElementById('new-title').value.trim();
+    const cat = document.getElementById('new-cat').value.trim();
+    if(!title || !cat){ alert('العنوان والتصنيف مطلوبان.'); return; }
+    const book = {
+      isbn: document.getElementById('new-isbn').value.trim(),
+      author: document.getElementById('new-author').value.trim(),
+      title,
+      year: document.getElementById('new-year').value.trim(),
+      price: document.getElementById('new-price').value ? Number(document.getElementById('new-price').value) : null,
+      images: parseImages(document.getElementById('new-image').value),
+      discount: Number(document.getElementById('new-discount').value) || 0,
+      description: document.getElementById('new-desc').value.trim()
+    };
+    // your schema has no auto-increment on id, so take the next free id from the database
+    const last = await db.from('books').select('id').order('id', { ascending: false }).limit(1);
+    if(last.error) return showError(last.error);
+    const newId = (last.data && last.data.length ? Number(last.data[0].id) : 0) + 1;
+    const { data, error } = await db.from('books').insert({ id: newId, ...rowOf(book, cat) }).select().single();
+    if(error) return showError(error);
+    book.id = data.id;
+    let c = findCat(cat);
+    if(!c){ c = { name: cat, books: [] }; DATA.push(c); }
+    c.books.push(book);
+    ['new-title','new-author','new-isbn','new-year','new-price','new-cat','new-image','new-desc','new-discount'].forEach(id => document.getElementById(id).value = '');
+    hideAddForm();
+    render();
+  }
+
+  function parseImages(str){
+    return (str||'').split(',').map(s => s.trim()).filter(Boolean);
+  }
+  function imagesToStr(b){
+    if(Array.isArray(b.images)) return b.images.join(', ');
+    return b.image || '';
+  }
+
+  async function updateField(catName, id, field, value){
+    const c = findCat(catName);
+    const b = c.books.find(b => b.id === id);
+    if(field === 'price') value = value === '' ? null : Number(value);
+    if(field === 'discount') value = Number(value) || 0;
+    if(field === 'images') value = parseImages(value);
+    const { data, error } = await db.from('books').update({ [field]: value }).eq('id', id).select();
+    if(error || !data || !data.length) return showError(error || 'لا تملك صلاحية التعديل (سجّل الدخول من جديد)');
+    b[field] = value;
+    delete b.image;
+    document.getElementById('stats').textContent = statsText();
+  }
+
+  async function deleteBook(catName, id){
+    if(!confirm('حذف هذا الكتاب نهائيًا من القائمة؟')) return;
+    const { data, error } = await db.from('books').delete().eq('id', id).select();
+    if(error || !data || !data.length) return showError(error || 'لا تملك صلاحية الحذف');
+    const c = findCat(catName);
+    c.books = c.books.filter(b => b.id !== id);
+    DATA = DATA.filter(x => x.books.length > 0);
+    render();
+  }
+
+  async function editDescription(catName, id){
+    const c = findCat(catName);
+    const b = c.books.find(x => x.id === id);
+    const val = prompt('اكتب وصف الكتاب (سيظهر للزبون عند الضغط على الكتاب):', b.description || '');
+    if(val === null) return; // cancelled
+    await updateField(catName, id, 'description', val.trim());
+    render();
+  }
+
+  function statsText(){
+    const totalBooks = DATA.reduce((s,c)=>s+c.books.length,0);
+    return `${DATA.length} تصنيف — ${totalBooks} كتاب`;
+  }
+
+  function render(){
+    document.getElementById('stats').textContent = statsText();
+    const query = (document.getElementById('admin-search')?.value || '').trim().toLowerCase();
+    const box = document.getElementById('catalogue-editor');
+
+    const filteredCats = DATA.map(cat => ({
+      name: cat.name,
+      books: query
+        ? cat.books.filter(b => (b.title||'').toLowerCase().includes(query) || (b.author||'').toLowerCase().includes(query))
+        : cat.books
+    })).filter(cat => cat.books.length > 0);
+
+    if(query && filteredCats.length === 0){
+      box.innerHTML = `<p style="color:#8a7458;text-align:center;padding:30px 0;">لا توجد نتائج مطابقة لـ "${escAttr(query)}"</p>`;
+      return;
+    }
+
+    box.innerHTML = filteredCats.map(cat => `
+      <div class="cat-block">
+        <h2>${escAttr(cat.name)} <span style="font-size:.8rem;color:#8a7458;">(${cat.books.length})</span></h2>
+        <table>
+          <thead><tr><th>الصورة</th><th>العنوان</th><th>المؤلف</th><th>السنة</th><th>السعر</th><th>خصم %</th><th>ISBN</th><th>الوصف</th><th></th></tr></thead>
+          <tbody>
+            ${cat.books.map(b => `
+              <tr>
+                <td><input value="${escAttr(imagesToStr(b))}" placeholder="images/x.jpg, images/y.jpg" onchange="updateField('${escAttr(cat.name)}',${b.id},'images',this.value)" style="width:150px;"></td>
+                <td><input value="${escAttr(b.title)}" onchange="updateField('${escAttr(cat.name)}',${b.id},'title',this.value)"></td>
+                <td><input value="${escAttr(b.author)}" onchange="updateField('${escAttr(cat.name)}',${b.id},'author',this.value)"></td>
+                <td><input value="${escAttr(b.year)}" onchange="updateField('${escAttr(cat.name)}',${b.id},'year',this.value)" style="width:70px;"></td>
+                <td><input type="number" value="${b.price ?? ''}" onchange="updateField('${escAttr(cat.name)}',${b.id},'price',this.value)" style="width:85px;"></td>
+                <td><input type="number" min="0" max="90" value="${b.discount || ''}" placeholder="0" onchange="updateField('${escAttr(cat.name)}',${b.id},'discount',this.value)" style="width:60px;"></td>
+                <td><input value="${escAttr(b.isbn)}" onchange="updateField('${escAttr(cat.name)}',${b.id},'isbn',this.value)"></td>
+                <td><button class="row-actions" style="font-size:.78rem;padding:5px 9px;border-radius:6px;border:1px solid var(--line);background:var(--card);cursor:pointer;" onclick="editDescription('${escAttr(cat.name)}',${b.id})">${b.description ? '✎ تعديل الوصف' : '+ إضافة وصف'}</button></td>
+                <td class="row-actions"><button class="del" onclick="deleteBook('${escAttr(cat.name)}',${b.id})">حذف</button></td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+    `).join('');
+  }
+
+  function escAttr(s){ return (s||'').toString().replace(/"/g,'&quot;'); }
+
+  function downloadDataFile(){
+    const js = "// بيانات كتب دار الكتاب العربي - يمكن تعديلها من صفحة الإدارة (admin.html)\nwindow.BOOKS_DATA = " + JSON.stringify(DATA, null, 1) + ";\nwindow.SITE_SETTINGS = " + JSON.stringify(SETTINGS, null, 1) + ";\n";
+    const blob = new Blob([js], {type:'text/javascript'});
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'books-data.js';
+    a.click();
+  }
+
+  function bookPageHtml(b){
+    const esc = s => (s||'').toString().replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    const fmtPrice = p => p == null ? "السعر عند الطلب" : Number(p).toLocaleString('ar-DZ') + " دج";
+    const title = esc(b.title), author = esc(b.author || 'غير معروف'), category = esc(b.category);
+    const desc = esc(b.description || `كتاب ${b.title} ضمن تصنيف ${b.category} من إصدارات دار الكتاب العربي.`);
+    const metaDesc = esc((b.description || `${b.title} - ${b.author||''} - ${b.category} - دار الكتاب العربي`).slice(0,160));
+    const pct = (b.discount && b.discount > 0) ? b.discount : (SETTINGS.discountPercent || 0);
+    const hasDiscount = pct > 0 && b.price != null;
+    const finalPrice = hasDiscount ? Math.round(b.price * (1 - pct/100)) : b.price;
+    const price = hasDiscount
+      ? `<span style="text-decoration:line-through;color:#a08e75;font-size:.85em;">${fmtPrice(b.price)}</span> <span style="color:var(--maroon);">${fmtPrice(finalPrice)}</span> <span style="background:var(--maroon);color:#fff;font-size:.68em;padding:2px 8px;border-radius:999px;">خصم ${pct}%</span>`
+      : fmtPrice(b.price);
+    const imgs = Array.isArray(b.images) && b.images.length ? b.images.filter(Boolean) : (b.image ? [b.image] : []);
+    let coverHtml, ogImage = '';
+    if(imgs.length){
+      const firstUrl = imgs[0].startsWith('http') ? imgs[0] : `${SITE_DOMAIN}/${imgs[0]}`;
+      coverHtml = `<img class="cover" src="../${esc(imgs[0])}" alt="${title}">`;
+      if(imgs.length > 1){
+        coverHtml += `<div class="cover-extra">${imgs.slice(1).map(src => `<img src="../${esc(src)}" alt="${title}">`).join('')}</div>`;
+      }
+      ogImage = `<meta property="og:image" content="${firstUrl}">`;
+    } else {
+      coverHtml = `<div class="cover-ph">📖</div>`;
+    }
+    const yearHtml = b.year ? `<span>سنة النشر: ${esc(b.year)}</span>` : '';
+    const isbnHtml = b.isbn ? `<span>ISBN: ${esc(b.isbn)}</span>` : '';
+    const waText = encodeURIComponent(`مرحبا، أرغب في طلب كتاب: ${b.title}`);
+    return `<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${title} — ${author} | دار الكتاب العربي</title>
+<meta name="description" content="${metaDesc}">
+<link rel="canonical" href="${SITE_DOMAIN}/books/${b.id}.html">
+<meta property="og:type" content="book">
+<meta property="og:title" content="${title}">
+<meta property="og:description" content="${metaDesc}">
+<meta property="og:url" content="${SITE_DOMAIN}/books/${b.id}.html">
+${ogImage}
+<link href="https://fonts.googleapis.com/css2?family=Amiri:wght@400;700&family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet">
+<style>
+  :root{--paper:#f6efe2;--ink:#2a1c14;--maroon:#7a1f2b;--maroon-dark:#5a1620;--gold:#b8863b;--line:#dccdab;--card:#fffdf8;}
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--paper);color:var(--ink);font-family:'Tajawal',sans-serif;line-height:1.7;}
+  header{background:var(--maroon);padding:14px 20px;}
+  header a{color:#fbe9d0;text-decoration:none;font-family:'Amiri',serif;font-size:1.2rem;font-weight:700;}
+  .wrap{max-width:760px;margin:0 auto;padding:28px 20px 60px;}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;overflow:hidden;box-shadow:0 2px 10px rgba(42,28,20,.08);}
+  .cover{width:100%;max-height:380px;object-fit:contain;background:#efe4cf;display:block;}
+  .cover-ph{width:100%;height:220px;background:linear-gradient(135deg,#efe4cf,var(--line));display:flex;align-items:center;justify-content:center;color:var(--gold);font-size:3rem;}
+  .cover-extra{display:flex;gap:2px;}
+  .cover-extra img{flex:1;max-height:160px;object-fit:contain;background:#efe4cf;}
+  .info{padding:24px 26px 28px;}
+  .cat-tag{font-size:.8rem;color:var(--gold);font-weight:700;}
+  h1{font-family:'Amiri',serif;font-size:1.7rem;margin:8px 0 6px;color:var(--maroon-dark);}
+  .author{color:#7a6752;font-size:1rem;margin-bottom:10px;}
+  .meta{display:flex;gap:16px;flex-wrap:wrap;color:#8a7458;font-size:.85rem;margin-bottom:16px;}
+  .desc{color:#4a3a2c;font-size:.98rem;margin-bottom:22px;white-space:pre-line;}
+  .bottom{display:flex;align-items:center;justify-content:space-between;gap:14px;border-top:1px dashed var(--line);padding-top:18px;flex-wrap:wrap;}
+  .price{font-weight:800;color:var(--maroon);font-size:1.35rem;}
+  .order-btn{background:#25D366;color:#fff;text-decoration:none;border-radius:8px;padding:12px 20px;font-weight:800;font-size:.95rem;}
+  .back{display:inline-block;margin-top:26px;color:var(--maroon-dark);text-decoration:none;font-weight:600;font-size:.9rem;}
+  .back:hover{text-decoration:underline;}
+</style>
+</head>
+<body>
+<header><a href="../index.html">دار الكتاب العربي</a></header>
+<div class="wrap">
+  <div class="card">
+    ${coverHtml}
+    <div class="info">
+      <span class="cat-tag">${category}</span>
+      <h1>${title}</h1>
+      <div class="author">${author}</div>
+      <div class="meta">${yearHtml}${isbnHtml}</div>
+      <p class="desc">${desc}</p>
+      <div class="bottom">
+        <span class="price">${price}</span>
+        <a class="order-btn" href="https://wa.me/${WHATSAPP_NUMBER}?text=${waText}" target="_blank" rel="noopener">طلب عبر واتساب</a>
+      </div>
+    </div>
+  </div>
+  <a class="back" href="../index.html?book=${b.id}">◀ تصفح كل الكتب في الموقع</a>
+</div>
+</body>
+</html>`;
+  }
+
+  async function downloadSeoPages(){
+    const zip = new JSZip();
+    const booksFolder = zip.folder("books");
+    const urls = [SITE_DOMAIN + "/"];
+    DATA.forEach(cat => {
+      cat.books.forEach(b => {
+        const withCat = {...b, category: cat.name};
+        booksFolder.file(`${b.id}.html`, bookPageHtml(withCat));
+        urls.push(`${SITE_DOMAIN}/books/${b.id}.html`);
+      });
+    });
+    let sitemap = '<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n';
+    urls.forEach(u => sitemap += `  <url><loc>${u}</loc></url>\n`);
+    sitemap += '</urlset>\n';
+    zip.file("sitemap.xml", sitemap);
+
+    const blob = await zip.generateAsync({type:"blob"});
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'dka-seo-pages.zip';
+    a.click();
+  }
+
+  function importFile(evt){
+    const file = evt.target.files[0];
+    if(!file) return;
+    if(!confirm('سيتم إضافة/تحديث الكتب الموجودة في الملف داخل قاعدة البيانات (الكتب التي لها نفس الرقم id ستُستبدل). متابعة؟')){ evt.target.value=''; return; }
+    const reader = new FileReader();
+    reader.onload = async () => {
+      try{
+        const text = reader.result;
+        const imported = JSON.parse(text.substring(text.indexOf('['), text.lastIndexOf(']')+1));
+        const rows = [];
+        imported.forEach(c => c.books.forEach(b => rows.push({ id: b.id, ...rowOf(b, c.name) })));
+        for(let k = 0; k < rows.length; k += 100){
+          const { error } = await db.from('books').upsert(rows.slice(k, k+100));
+          if(error) throw error;
+        }
+        await loadData();
+        render();
+        alert('تم استيراد ' + rows.length + ' كتاب بنجاح.');
+      }catch(e){
+        showError(e);
+      }
+      evt.target.value = '';
+    };
+    reader.readAsText(file);
+  }
+
+  async function init(){
+    document.getElementById('catalogue-editor').innerHTML = '<p style="text-align:center;color:#8a7458;padding:30px 0;">جارٍ التحميل...</p>';
+    try{ await loadData(); }catch(e){ return showError(e); }
+    document.getElementById('global-discount').value = SETTINGS.discountPercent || '';
+    render();
+  }
+
+  function effectivePrice(b){
+    const pct = (b.discount && b.discount > 0) ? b.discount : (SETTINGS.discountPercent || 0);
+    if(!pct || b.price == null) return { final: b.price, pct: 0 };
+    return { final: Math.round(b.price * (1 - pct/100)), pct };
+  }
+</script>
+</body>
+</html>
