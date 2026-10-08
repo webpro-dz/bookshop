@@ -398,7 +398,8 @@
   const WHATSAPP_NUMBER = "213774353118"; // dka book store WhatsApp order number
   let ALL_BOOKS = [];
   let currentCategory = 'all';
-  let cart = JSON.parse(localStorage.getItem('dka_cart') || '{}'); // {bookId: qty}
+  let cart = {}; // {bookId: qty}
+  try { cart = JSON.parse(localStorage.getItem('dka_cart') || '{}') || {}; } catch(e) { cart = {}; }
 
   let SETTINGS = { discountPercent: 0 };
 
@@ -442,7 +443,7 @@
     const cats = ['all', ...new Set(ALL_BOOKS.map(b => b.category))];
     const box = document.getElementById('filters');
     box.innerHTML = cats.map(c =>
-      `<button class="chip${c===currentCategory?' active':''}" onclick="setCategory('${c.replace(/'/g,"\\'")}', this)">${c==='all' ? 'الكل' : c}</button>`
+      `<button class="chip${c===currentCategory?' active':''}" data-cat="${escAttr(c)}" onclick="setCategory(this.dataset.cat, this)">${c==='all' ? 'الكل' : escHtml(c)}</button>`
     ).join('');
   }
 
@@ -456,19 +457,19 @@
   function renderBooks(list){
     const grid = document.getElementById('book-grid');
     grid.innerHTML = list.map(b => `
-      <a class="book-card" href="books/${b.id}.html" data-title="${escAttr(b.title)}" data-author="${escAttr(b.author)}" data-cat="${escAttr(b.category)}" onclick="event.preventDefault(); openBookModal(${b.id})">
+      <a class="book-card" href="books/${b.id}.html" data-title="${escAttr(b.title)}" data-author="${escAttr(b.author)}" data-cat="${escAttr(b.category)}" onclick="event.preventDefault(); openBookModal('${b.id}')">
         ${(() => { const imgs = getImages(b); return imgs.length
           ? `<img class="book-cover" src="${escAttr(imgs[0])}" alt="${escAttr(b.title)}" onerror="this.replaceWith(Object.assign(document.createElement('div'),{className:'book-cover-placeholder',textContent:'📖'}))">`
           : `<div class="book-cover-placeholder">📖</div>`;
         })()}
         <div class="book-card-inner">
-          <span class="book-cat-tag">${b.category}</span>
-          <h3 class="book-title">${b.title}</h3>
-          <span class="book-author">${b.author || 'غير معروف'}</span>
-          <span class="book-meta">${b.year ? 'سنة النشر: ' + b.year : ''}</span>
+          <span class="book-cat-tag">${escHtml(b.category)}</span>
+          <h3 class="book-title">${escHtml(b.title)}</h3>
+          <span class="book-author">${escHtml(b.author || 'غير معروف')}</span>
+          <span class="book-meta">${b.year ? 'سنة النشر: ' + escHtml(b.year) : ''}</span>
           <div class="book-bottom">
             <span class="book-price">${priceHtml(b)}</span>
-            <button class="add-btn" onclick="event.stopPropagation(); event.preventDefault(); addToCart(${b.id}, this)">أضف للسلة</button>
+            <button class="add-btn" onclick="event.stopPropagation(); event.preventDefault(); addToCart('${b.id}', this)">أضف للسلة</button>
           </div>
         </div>
       </a>
@@ -477,7 +478,8 @@
     document.getElementById('no-results').style.display = list.length === 0 ? 'block' : 'none';
   }
 
-  function escAttr(s){ return (s||'').replace(/"/g,'&quot;'); }
+  function escHtml(s){ return (s==null?'':String(s)).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
+  function escAttr(s){ return escHtml(s); }
 
   function getImages(b){
     if(Array.isArray(b.images) && b.images.length) return b.images.filter(Boolean);
@@ -496,7 +498,7 @@
   }
 
   // ---- CART ----
-  function saveCart(){ localStorage.setItem('dka_cart', JSON.stringify(cart)); }
+  function saveCart(){ try { localStorage.setItem('dka_cart', JSON.stringify(cart)); } catch(e) {} }
 
   function addToCart(id, btn){
     cart[id] = (cart[id] || 0) + 1;
@@ -547,13 +549,13 @@
       return `
         <div class="cart-line">
           <div>
-            <div class="cart-line-title">${book.title}${eff.pct > 0 ? ` <span class="discount-badge">-${eff.pct}%</span>` : ''}</div>
+            <div class="cart-line-title">${escHtml(book.title)}${eff.pct > 0 ? ` <span class="discount-badge">-${eff.pct}%</span>` : ''}</div>
             <div class="cart-line-qty">
-              <button onclick="changeQty(${id},-1)">−</button>
+              <button onclick="changeQty('${id}',-1)">−</button>
               <span>${cart[id]}</span>
-              <button onclick="changeQty(${id},1)">+</button>
+              <button onclick="changeQty('${id}',1)">+</button>
             </div>
-            <button class="remove-line" onclick="removeLine(${id})">إزالة</button>
+            <button class="remove-line" onclick="removeLine('${id}')">إزالة</button>
           </div>
           <div>${fmtPrice(lineTotal)}</div>
         </div>
@@ -566,8 +568,8 @@
   function closeCart(){ document.body.classList.remove('cart-open'); }
 
   // ---- BOOK DETAIL MODAL ----
-  function openBookModal(id){
-    const b = ALL_BOOKS.find(x => x.id === id);
+  function openBookModal(id, push = true){
+    const b = ALL_BOOKS.find(x => String(x.id) === String(id));
     if(!b) return;
     const imgs = getImages(b);
     const mainImg = imgs.length
@@ -580,25 +582,25 @@
       ${mainImg}
       ${thumbs}
       <div class="modal-info">
-        <span class="modal-cat-tag">${b.category}</span>
-        <h2 class="modal-title">${b.title}</h2>
-        <div class="modal-author">${b.author || 'غير معروف'}</div>
+        <span class="modal-cat-tag">${escHtml(b.category)}</span>
+        <h2 class="modal-title">${escHtml(b.title)}</h2>
+        <div class="modal-author">${escHtml(b.author || 'غير معروف')}</div>
         <div class="modal-meta-row">
-          ${b.year ? `<span>سنة النشر: ${b.year}</span>` : ''}
-          ${b.isbn ? `<span>ISBN: ${b.isbn}</span>` : ''}
+          ${b.year ? `<span>سنة النشر: ${escHtml(b.year)}</span>` : ''}
+          ${b.isbn ? `<span>ISBN: ${escHtml(b.isbn)}</span>` : ''}
         </div>
-        <p class="modal-desc">${b.description ? b.description : 'لا يوجد وصف متاح لهذا الكتاب بعد.'}</p>
+        <p class="modal-desc">${b.description ? escHtml(b.description) : 'لا يوجد وصف متاح لهذا الكتاب بعد.'}</p>
         <div class="modal-bottom">
           <span class="modal-price">${priceHtml(b)}</span>
-          <button class="add-btn" onclick="addToCart(${b.id}, this)">أضف للسلة</button>
+          <button class="add-btn" onclick="addToCart('${b.id}', this)">أضف للسلة</button>
         </div>
-        <button id="copy-link-btn" onclick="copyBookLink(${b.id}, this)">🔗 نسخ رابط هذا الكتاب</button>
+        <button id="copy-link-btn" onclick="copyBookLink('${b.id}', this)">🔗 نسخ رابط هذا الكتاب</button>
       </div>
     `;
     document.body.classList.add('modal-open');
     const url = new URL(window.location.href);
     url.searchParams.set('book', id);
-    history.pushState({book:id}, '', url);
+    if(push) history.pushState({book:id}, '', url);
   }
   function closeBookModal(){
     document.body.classList.remove('modal-open');
@@ -618,7 +620,7 @@
     }
   }
 
-  function sendOrder(){
+  async function sendOrder(){
     const name = document.getElementById('cust-name').value.trim();
     const phone = document.getElementById('cust-phone').value.trim();
     const address = document.getElementById('cust-address').value.trim();
@@ -626,7 +628,15 @@
       alert('الرجاء إدخال الاسم ورقم الهاتف قبل إرسال الطلب.');
       return;
     }
+    const btn = document.getElementById('order-btn');
+    if(btn && btn.disabled) return; // already sending
+    if(!Object.keys(cart).some(id => ALL_BOOKS.some(b => String(b.id) === String(id)))){
+      alert('السلة فارغة. أضف كتبًا أولاً.');
+      return;
+    }
+    const waWin = window.open('', '_blank'); // open now so mobile browsers don't block it
     const ids = Object.keys(cart);
+    const items = [];
     let lines = [];
     let total = 0;
     ids.forEach(id => {
@@ -635,6 +645,7 @@
       const eff = getEffectivePrice(book);
       const lineTotal = (eff.final || 0) * cart[id];
       total += lineTotal;
+      items.push({ id: book.id, title: book.title, qty: cart[id], price: eff.final });
       const discNote = eff.pct > 0 ? ` (خصم ${eff.pct}%)` : '';
       lines.push(`- ${book.title} (${book.author}) × ${cart[id]}${discNote} = ${fmtPrice(lineTotal)}`);
     });
@@ -651,7 +662,36 @@ ${lines.join('\n')}
 المجموع: ${fmtPrice(total)}`;
 
     const url = `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(msg)}`;
-    window.open(url, '_blank');
+
+    // Log the order in Supabase and check the block list (fails open if Supabase is unreachable)
+    let result = 'ok';
+    if(btn){ btn.disabled = true; }
+    try{
+      if(window.dkaDb){
+        const { data, error } = await window.dkaDb.rpc('place_order', {
+          p_name: name, p_phone: phone, p_address: address, p_items: items, p_total: total
+        });
+        if(error) console.warn('place_order failed', error); else result = data;
+      }
+    }catch(e){ console.warn('place_order failed', e); }
+    if(btn){ btn.disabled = false; }
+
+    if(result === 'blocked'){
+      if(waWin) waWin.close();
+      alert('عذرًا، لا يمكن قبول هذا الطلب حاليًا. يرجى التواصل معنا مباشرة.');
+      return;
+    }
+    if(result === 'invalid'){
+      if(waWin) waWin.close();
+      alert('رقم الهاتف غير صالح، الرجاء التأكد منه.');
+      return;
+    }
+    if(result === 'rate'){
+      if(waWin) waWin.close();
+      alert('لقد أرسلت عدة طلبات في وقت قصير. يرجى المحاولة لاحقًا أو التواصل معنا مباشرة.');
+      return;
+    }
+    if(waWin) waWin.location.href = url; else window.location.href = url;
   }
 
   // init
@@ -659,16 +699,22 @@ ${lines.join('\n')}
     const grid = document.getElementById('book-grid');
     if(grid) grid.innerHTML = '<p style="grid-column:1/-1;text-align:center;color:#8a7458;padding:30px 0;">جارٍ تحميل الكتب...</p>';
     await loadCatalogue();
+    // drop cart lines whose book no longer exists (old ids from a previous version of the site)
+    if(ALL_BOOKS.length){
+      const valid = new Set(ALL_BOOKS.map(b => String(b.id)));
+      Object.keys(cart).forEach(id => { if(!valid.has(String(id))) delete cart[id]; });
+      saveCart();
+    }
     renderFilters();
     filterBooks();
     renderCart();
     // open a book directly if the URL has ?book=ID (for shared links)
     const initialBookId = new URLSearchParams(window.location.search).get('book');
-    if(initialBookId) openBookModal(Number(initialBookId));
+    if(initialBookId) openBookModal(initialBookId, false);
   })();
   window.addEventListener('popstate', () => {
     const id = new URLSearchParams(window.location.search).get('book');
-    if(id) openBookModal(Number(id)); else document.body.classList.remove('modal-open');
+    if(id) openBookModal(id, false); else document.body.classList.remove('modal-open');
   });
 </script>
 </body>

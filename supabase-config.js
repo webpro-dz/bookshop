@@ -5,24 +5,45 @@
 
   window.dkaDb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-  // Loads all books + settings, returns { data: [{name, books:[...]}], settings: {discountPercent} }
+  // Loads ALL books (paged, because the API returns max 1000 rows per request) + settings
+  async function fetchAllBooks(){
+    const PAGE = 1000;
+    // keep the original order: oldest first, then by id. Falls back to id only if created_at does not exist.
+    let orderCols = ['created_at', 'id'];
+    let all = [];
+    for (let from = 0; ; from += PAGE) {
+      let q = window.dkaDb.from('books').select('*');
+      orderCols.forEach(col => { q = q.order(col, { ascending: true }); });
+      let res = await q.range(from, from + PAGE - 1);
+      if (res.error && orderCols.length > 1 && from === 0) {
+        orderCols = ['id'];
+        let q2 = window.dkaDb.from('books').select('*').order('id', { ascending: true });
+        res = await q2.range(from, from + PAGE - 1);
+      }
+      if (res.error) throw res.error;
+      all = all.concat(res.data || []);
+      if (!res.data || res.data.length < PAGE) break;
+    }
+    return all;
+  }
+
+  // returns { data: [{name, books:[...]}], settings: {discountPercent} }
   window.dkaFetchCatalogue = async function(){
-    const [booksRes, setRes] = await Promise.all([
-      window.dkaDb.from('books').select('*').order('id', { ascending: true }).range(0, 4999),
+    const [rows, setRes] = await Promise.all([
+      fetchAllBooks(),
       window.dkaDb.from('settings').select('discount_percent').eq('id', 1).maybeSingle()
     ]);
-    if (booksRes.error) throw booksRes.error;
     const cats = [], byName = {};
-    booksRes.data.forEach(r => {
+    rows.forEach(r => {
       if (!byName[r.category]) { byName[r.category] = { name: r.category, books: [] }; cats.push(byName[r.category]); }
       byName[r.category].books.push({
-        id: r.id, isbn: r.isbn || '', author: r.author || '', title: r.title, year: r.year || '',
-        price: r.price === null ? null : Number(r.price),
+        id: String(r.id), isbn: r.isbn || '', author: r.author || '', title: r.title, year: r.year || '',
+        price: r.price === null || r.price === undefined ? null : Number(r.price),
         discount: Number(r.discount) || 0,
-        images: r.images || [], description: r.description || ''
+        images: Array.isArray(r.images) ? r.images : [], description: r.description || ''
       });
     });
-    const settings = { discountPercent: setRes.data ? Number(setRes.data.discount_percent) || 0 : 0 };
+    const settings = { discountPercent: setRes && setRes.data ? Number(setRes.data.discount_percent) || 0 : 0 };
     return { data: cats, settings };
   };
 })();

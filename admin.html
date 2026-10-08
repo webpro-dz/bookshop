@@ -38,6 +38,15 @@
   .form-grid input,.form-grid select{padding:9px;border:1px solid var(--line);border-radius:7px;font-family:inherit;}
   .note{background:#fff6e0;border:1px solid #e6cf94;border-radius:8px;padding:12px 16px;font-size:.85rem;color:#6b551f;margin-bottom:20px;}
   .stat{color:#8a7458;font-size:.85rem;margin-bottom:16px;}
+  .tabs{display:flex;gap:8px;margin-bottom:18px;flex-wrap:wrap;}
+  .tab{padding:9px 18px;border:1px solid var(--line);background:var(--card);border-radius:8px;cursor:pointer;font-family:inherit;font-weight:700;}
+  .tab.active{background:var(--maroon);color:#fff;border-color:var(--maroon);}
+  .badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:.72rem;font-weight:700;background:#f3d6d6;color:#8a1c1c;}
+  .small-btn{font-size:.78rem;padding:5px 9px;border-radius:6px;border:1px solid var(--line);background:var(--card);cursor:pointer;font-family:inherit;}
+  .small-btn.danger{color:#8a1c1c;}
+  .panel-box{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 16px;margin-bottom:16px;overflow-x:auto;}
+  .panel-box table{width:100%;border-collapse:collapse;font-size:.85rem;}
+  .panel-box th,.panel-box td{padding:8px;border-bottom:1px solid var(--line);text-align:right;vertical-align:top;}
 </style>
 </head>
 <body>
@@ -58,6 +67,13 @@
   </header>
   <div class="wrap">
 
+    <div class="tabs">
+      <button class="tab active" id="tabbtn-books" onclick="showTab('books')">📚 الكتب</button>
+      <button class="tab" id="tabbtn-orders" onclick="showTab('orders')">🧾 الطلبات</button>
+      <button class="tab" id="tabbtn-blocked" onclick="showTab('blocked')">🚫 الأرقام المحظورة</button>
+    </div>
+
+    <div id="tab-books">
     <div class="note">
       ✅ هذه اللوحة مرتبطة بقاعدة بيانات <strong>Supabase</strong>: كل تعديل (إضافة، حذف، سعر، خصم، وصف…) يُحفظ مباشرة ويظهر للزبائن فورًا دون رفع أي ملف.
       <br><br>📷 الصور: اكتب مسار الصورة كما في الاستضافة (مثال: <code>images/kitab1.jpg</code>) أو رابطًا كاملًا.
@@ -105,6 +121,25 @@
     </div>
 
     <div id="catalogue-editor"></div>
+    </div>
+
+    <div id="tab-orders" style="display:none;">
+      <div class="toolbar"><button class="btn secondary" onclick="loadOrders()">↻ تحديث</button></div>
+      <div class="panel-box" id="orders-box"></div>
+    </div>
+
+    <div id="tab-blocked" style="display:none;">
+      <div class="panel-box">
+        <strong>حظر رقم هاتف</strong>
+        <div class="toolbar" style="margin-top:10px;">
+          <input id="block-phone" placeholder="رقم الهاتف (مثال: 0774353118)" style="padding:9px;border:1px solid var(--line);border-radius:7px;font-family:inherit;">
+          <input id="block-note" placeholder="ملاحظة (اختياري)" style="padding:9px;border:1px solid var(--line);border-radius:7px;font-family:inherit;flex:1;min-width:160px;">
+          <button class="btn" onclick="addBlocked()">حظر</button>
+        </div>
+        <p style="font-size:.8rem;color:#8a7458;">يُحظر الرقم مهما كانت صيغة كتابته (0774… أو +213774…). الزبون المحظور لا يستطيع إرسال طلب من الموقع.</p>
+      </div>
+      <div class="panel-box" id="blocked-box"></div>
+    </div>
   </div>
 </div>
 
@@ -112,11 +147,12 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="supabase-config.js"></script>
 <script>
-  const SITE_DOMAIN = "https://darelkitabelarabi.ifree.page"; // غيّر هذا إذا تغيّر رابط موقعك
-  const WHATSAPP_NUMBER = "213661917773";
+  const SITE_DOMAIN = "https://bookshop.darelkitabelarabi.workers.dev"; // غيّر هذا إذا تغيّر رابط موقعك
+  const WHATSAPP_NUMBER = "213774353118";
   const db = window.dkaDb;
 
   async function tryLogin(){
+    if(!db){ alert('تعذّر الاتصال بقاعدة البيانات. تأكد من الاتصال بالإنترنت وأعد تحميل الصفحة.'); return; }
     const email = document.getElementById('admin-email').value.trim();
     const password = document.getElementById('admin-pass').value;
     const { error } = await db.auth.signInWithPassword({ email, password });
@@ -133,6 +169,7 @@
     init();
   }
   (async () => {
+    if(!db) return;
     const { data } = await db.auth.getSession();
     if(data.session) showApp();
   })();
@@ -193,13 +230,15 @@
       discount: Number(document.getElementById('new-discount').value) || 0,
       description: document.getElementById('new-desc').value.trim()
     };
-    // your schema has no auto-increment on id, so take the next free id from the database
-    const last = await db.from('books').select('id').order('id', { ascending: false }).limit(1);
-    if(last.error) return showError(last.error);
-    const newId = (last.data && last.data.length ? Number(last.data[0].id) : 0) + 1;
-    const { data, error } = await db.from('books').insert({ id: newId, ...rowOf(book, cat) }).select().single();
+    // if all ids are plain numbers, take the next number; otherwise let the database generate the id (uuid)
+    const row = rowOf(book, cat);
+    const allIds = DATA.flatMap(c => c.books.map(b => String(b.id)));
+    if(allIds.every(x => /^\d+$/.test(x))){
+      row.id = Math.max(0, ...allIds.map(Number)) + 1;
+    }
+    const { data, error } = await db.from('books').insert(row).select().single();
     if(error) return showError(error);
-    book.id = data.id;
+    book.id = String(data.id);
     let c = findCat(cat);
     if(!c){ c = { name: cat, books: [] }; DATA.push(c); }
     c.books.push(book);
@@ -216,12 +255,22 @@
     return b.image || '';
   }
 
-  async function updateField(catName, id, field, value){
-    const c = findCat(catName);
-    const b = c.books.find(b => b.id === id);
+  function findBook(id){
+    for(const c of DATA){
+      const b = c.books.find(x => String(x.id) === String(id));
+      if(b) return { cat: c, book: b };
+    }
+    return null;
+  }
+
+  async function updateField(id, field, value){
+    const f = findBook(id);
+    if(!f) return;
+    const b = f.book;
     if(field === 'price') value = value === '' ? null : Number(value);
     if(field === 'discount') value = Number(value) || 0;
     if(field === 'images') value = parseImages(value);
+    if(field === 'title' && !String(value).trim()){ alert('العنوان لا يمكن أن يكون فارغًا.'); render(); return; }
     const { data, error } = await db.from('books').update({ [field]: value }).eq('id', id).select();
     if(error || !data || !data.length) return showError(error || 'لا تملك صلاحية التعديل (سجّل الدخول من جديد)');
     b[field] = value;
@@ -229,22 +278,21 @@
     document.getElementById('stats').textContent = statsText();
   }
 
-  async function deleteBook(catName, id){
+  async function deleteBook(id){
     if(!confirm('حذف هذا الكتاب نهائيًا من القائمة؟')) return;
     const { data, error } = await db.from('books').delete().eq('id', id).select();
     if(error || !data || !data.length) return showError(error || 'لا تملك صلاحية الحذف');
-    const c = findCat(catName);
-    c.books = c.books.filter(b => b.id !== id);
+    DATA.forEach(c => { c.books = c.books.filter(b => String(b.id) !== String(id)); });
     DATA = DATA.filter(x => x.books.length > 0);
     render();
   }
 
-  async function editDescription(catName, id){
-    const c = findCat(catName);
-    const b = c.books.find(x => x.id === id);
-    const val = prompt('اكتب وصف الكتاب (سيظهر للزبون عند الضغط على الكتاب):', b.description || '');
+  async function editDescription(id){
+    const f = findBook(id);
+    if(!f) return;
+    const val = prompt('اكتب وصف الكتاب (سيظهر للزبون عند الضغط على الكتاب):', f.book.description || '');
     if(val === null) return; // cancelled
-    await updateField(catName, id, 'description', val.trim());
+    await updateField(id, 'description', val.trim());
     render();
   }
 
@@ -278,15 +326,15 @@
           <tbody>
             ${cat.books.map(b => `
               <tr>
-                <td><input value="${escAttr(imagesToStr(b))}" placeholder="images/x.jpg, images/y.jpg" onchange="updateField('${escAttr(cat.name)}',${b.id},'images',this.value)" style="width:150px;"></td>
-                <td><input value="${escAttr(b.title)}" onchange="updateField('${escAttr(cat.name)}',${b.id},'title',this.value)"></td>
-                <td><input value="${escAttr(b.author)}" onchange="updateField('${escAttr(cat.name)}',${b.id},'author',this.value)"></td>
-                <td><input value="${escAttr(b.year)}" onchange="updateField('${escAttr(cat.name)}',${b.id},'year',this.value)" style="width:70px;"></td>
-                <td><input type="number" value="${b.price ?? ''}" onchange="updateField('${escAttr(cat.name)}',${b.id},'price',this.value)" style="width:85px;"></td>
-                <td><input type="number" min="0" max="90" value="${b.discount || ''}" placeholder="0" onchange="updateField('${escAttr(cat.name)}',${b.id},'discount',this.value)" style="width:60px;"></td>
-                <td><input value="${escAttr(b.isbn)}" onchange="updateField('${escAttr(cat.name)}',${b.id},'isbn',this.value)"></td>
-                <td><button class="row-actions" style="font-size:.78rem;padding:5px 9px;border-radius:6px;border:1px solid var(--line);background:var(--card);cursor:pointer;" onclick="editDescription('${escAttr(cat.name)}',${b.id})">${b.description ? '✎ تعديل الوصف' : '+ إضافة وصف'}</button></td>
-                <td class="row-actions"><button class="del" onclick="deleteBook('${escAttr(cat.name)}',${b.id})">حذف</button></td>
+                <td><input value="${escAttr(imagesToStr(b))}" placeholder="images/x.jpg, images/y.jpg" onchange="updateField('${b.id}','images',this.value)" style="width:150px;"></td>
+                <td><input value="${escAttr(b.title)}" onchange="updateField('${b.id}','title',this.value)"></td>
+                <td><input value="${escAttr(b.author)}" onchange="updateField('${b.id}','author',this.value)"></td>
+                <td><input value="${escAttr(b.year)}" onchange="updateField('${b.id}','year',this.value)" style="width:70px;"></td>
+                <td><input type="number" value="${b.price ?? ''}" onchange="updateField('${b.id}','price',this.value)" style="width:85px;"></td>
+                <td><input type="number" min="0" max="90" value="${b.discount || ''}" placeholder="0" onchange="updateField('${b.id}','discount',this.value)" style="width:60px;"></td>
+                <td><input value="${escAttr(b.isbn)}" onchange="updateField('${b.id}','isbn',this.value)"></td>
+                <td><button class="row-actions" style="font-size:.78rem;padding:5px 9px;border-radius:6px;border:1px solid var(--line);background:var(--card);cursor:pointer;" onclick="editDescription('${b.id}')">${b.description ? '✎ تعديل الوصف' : '+ إضافة وصف'}</button></td>
+                <td class="row-actions"><button class="del" onclick="deleteBook('${b.id}')">حذف</button></td>
               </tr>
             `).join('')}
           </tbody>
@@ -295,7 +343,7 @@
     `).join('');
   }
 
-  function escAttr(s){ return (s||'').toString().replace(/"/g,'&quot;'); }
+  function escAttr(s){ return (s==null?'':String(s)).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
 
   function downloadDataFile(){
     const js = "// بيانات كتب دار الكتاب العربي - يمكن تعديلها من صفحة الإدارة (admin.html)\nwindow.BOOKS_DATA = " + JSON.stringify(DATA, null, 1) + ";\nwindow.SITE_SETTINGS = " + JSON.stringify(SETTINGS, null, 1) + ";\n";
@@ -455,6 +503,113 @@ ${ogImage}
     const pct = (b.discount && b.discount > 0) ? b.discount : (SETTINGS.discountPercent || 0);
     if(!pct || b.price == null) return { final: b.price, pct: 0 };
     return { final: Math.round(b.price * (1 - pct/100)), pct };
+  }
+  // ---- ORDERS & BLOCKED NUMBERS ----
+  const STATUS = { new:'جديد', confirmed:'مؤكد', delivered:'تم التسليم', cancelled:'ملغى', fake:'مزيف' };
+  const esc = s => (s==null?'':String(s)).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+  const normPhone = p => (p||'').replace(/\D/g,'').slice(-9);
+  let ORDERS = [], BLOCKED = [];
+
+  function showTab(name){
+    ['books','orders','blocked'].forEach(t => {
+      document.getElementById('tab-'+t).style.display = t === name ? 'block' : 'none';
+      document.getElementById('tabbtn-'+t).classList.toggle('active', t === name);
+    });
+    if(name === 'orders') loadOrders();
+    if(name === 'blocked') loadBlocked();
+  }
+
+  async function loadBlockedList(){
+    const { data, error } = await db.from('blocked_phones').select('*').order('created_at', { ascending:false });
+    if(error) return showError(error);
+    BLOCKED = data || [];
+  }
+
+  async function loadOrders(){
+    document.getElementById('orders-box').innerHTML = '<p style="color:#8a7458;">جارٍ التحميل...</p>';
+    await loadBlockedList();
+    const { data, error } = await db.from('orders').select('*').order('created_at', { ascending:false }).limit(300);
+    if(error) return showError(error);
+    ORDERS = data || [];
+    renderOrders();
+  }
+
+  function renderOrders(){
+    const box = document.getElementById('orders-box');
+    if(!ORDERS.length){ box.innerHTML = '<p style="color:#8a7458;text-align:center;">لا توجد طلبات بعد.</p>'; return; }
+    const blockedSet = new Set(BLOCKED.map(b => b.phone));
+    const counts = {};
+    ORDERS.forEach(o => counts[o.phone_norm] = (counts[o.phone_norm]||0) + 1);
+    box.innerHTML = `<table><thead><tr><th>التاريخ</th><th>الزبون</th><th>العنوان</th><th>الكتب</th><th>المجموع</th><th>الحالة</th><th></th></tr></thead><tbody>` +
+      ORDERS.map(o => {
+        const items = (o.items||[]).map(i => `${esc(i.title)} × ${esc(i.qty)}`).join('<br>');
+        const blocked = blockedSet.has(o.phone_norm);
+        const many = counts[o.phone_norm] > 1 ? `<br><span style="color:#8a7458;font-size:.75rem;">${counts[o.phone_norm]} طلبات من هذا الرقم</span>` : '';
+        return `<tr>
+          <td>${esc(new Date(o.created_at).toLocaleString('ar-DZ'))}</td>
+          <td><strong>${esc(o.name)}</strong><br><span dir="ltr">${esc(o.phone)}</span>${blocked ? '<br><span class="badge">محظور</span>' : ''}${many}</td>
+          <td>${esc(o.address)}</td>
+          <td>${items}</td>
+          <td>${esc(Number(o.total||0).toLocaleString('ar-DZ'))} دج</td>
+          <td><select onchange="setOrderStatus('${o.id}', this.value)">${Object.entries(STATUS).map(([k,v]) => `<option value="${k}"${o.status===k?' selected':''}>${v}</option>`).join('')}</select></td>
+          <td>${blocked ? '' : `<button class="small-btn danger" onclick="blockFromOrder('${o.id}')">🚫 حظر الرقم</button> `}<button class="small-btn" onclick="deleteOrder('${o.id}')">حذف</button></td>
+        </tr>`;
+      }).join('') + '</tbody></table>';
+  }
+
+  async function setOrderStatus(id, status){
+    const { data, error } = await db.from('orders').update({ status }).eq('id', id).select();
+    if(error || !data || !data.length) return showError(error || 'لا تملك صلاحية التعديل');
+    const o = ORDERS.find(x => String(x.id) === String(id)); if(o) o.status = status;
+  }
+
+  async function deleteOrder(id){
+    if(!confirm('حذف هذا الطلب من السجل؟')) return;
+    const { data, error } = await db.from('orders').delete().eq('id', id).select();
+    if(error || !data || !data.length) return showError(error || 'لا تملك صلاحية الحذف');
+    ORDERS = ORDERS.filter(o => String(o.id) !== String(id));
+    renderOrders();
+  }
+
+  async function blockFromOrder(id){
+    const o = ORDERS.find(x => String(x.id) === String(id)); if(!o) return;
+    if(!confirm(`حظر الرقم ${o.phone} (${o.name}) ؟ لن يستطيع إرسال طلبات من الموقع.`)) return;
+    const { error } = await db.from('blocked_phones').upsert({ phone: o.phone_norm, note: o.name });
+    if(error) return showError(error);
+    await loadBlockedList();
+    renderOrders();
+  }
+
+  async function loadBlocked(){
+    document.getElementById('blocked-box').innerHTML = '<p style="color:#8a7458;">جارٍ التحميل...</p>';
+    await loadBlockedList();
+    renderBlocked();
+  }
+
+  function renderBlocked(){
+    const box = document.getElementById('blocked-box');
+    if(!BLOCKED.length){ box.innerHTML = '<p style="color:#8a7458;text-align:center;">لا توجد أرقام محظورة.</p>'; return; }
+    box.innerHTML = `<table><thead><tr><th>الرقم</th><th>ملاحظة</th><th>التاريخ</th><th></th></tr></thead><tbody>` +
+      BLOCKED.map(b => `<tr><td dir="ltr">0${esc(b.phone)}</td><td>${esc(b.note)}</td><td>${esc(new Date(b.created_at).toLocaleDateString('ar-DZ'))}</td>
+        <td><button class="small-btn" onclick="unblock('${esc(b.phone)}')">إلغاء الحظر</button></td></tr>`).join('') + '</tbody></table>';
+  }
+
+  async function addBlocked(){
+    const phone = normPhone(document.getElementById('block-phone').value);
+    if(phone.length < 9){ alert('أدخل رقم هاتف صحيح.'); return; }
+    const note = document.getElementById('block-note').value.trim();
+    const { error } = await db.from('blocked_phones').upsert({ phone, note });
+    if(error) return showError(error);
+    document.getElementById('block-phone').value = '';
+    document.getElementById('block-note').value = '';
+    await loadBlocked();
+  }
+
+  async function unblock(phone){
+    if(!confirm('إلغاء حظر هذا الرقم؟')) return;
+    const { error } = await db.from('blocked_phones').delete().eq('phone', phone);
+    if(error) return showError(error);
+    await loadBlocked();
   }
 </script>
 </body>
