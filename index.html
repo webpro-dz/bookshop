@@ -421,6 +421,9 @@
     }
   }
 
+  const ON_REQUEST = "السعر عند الطلب";
+  function fmtLine(eff, qty){ return eff.final == null ? ON_REQUEST : fmtPrice(eff.final * qty); }
+  function fmtTotal(total, hasUnpriced){ return fmtPrice(total) + (hasUnpriced ? ' + كتب بسعر عند الطلب' : ''); }
   function fmtPrice(p){
     return (p === null || p === undefined) ? "السعر عند الطلب" : Number(p).toLocaleString('ar-DZ') + " دج";
   }
@@ -539,13 +542,14 @@
     }
     document.getElementById('order-btn').disabled = false;
 
-    let total = 0;
+    let total = 0, hasUnpriced = false;
     box.innerHTML = ids.map(id => {
       const book = ALL_BOOKS.find(b => b.id == id);
       if(!book) return '';
       const eff = getEffectivePrice(book);
       const lineTotal = (eff.final || 0) * cart[id];
       total += lineTotal;
+      if(eff.final == null) hasUnpriced = true;
       return `
         <div class="cart-line">
           <div>
@@ -557,11 +561,11 @@
             </div>
             <button class="remove-line" onclick="removeLine('${id}')">إزالة</button>
           </div>
-          <div>${fmtPrice(lineTotal)}</div>
+          <div>${fmtLine(eff, cart[id])}</div>
         </div>
       `;
     }).join('');
-    document.getElementById('cart-total-val').textContent = fmtPrice(total);
+    document.getElementById('cart-total-val').textContent = fmtTotal(total, hasUnpriced);
   }
 
   function openCart(){ document.body.classList.add('cart-open'); }
@@ -638,16 +642,17 @@
     const ids = Object.keys(cart);
     const items = [];
     let lines = [];
-    let total = 0;
+    let total = 0, hasUnpriced = false;
     ids.forEach(id => {
       const book = ALL_BOOKS.find(b => b.id == id);
       if(!book) return;
       const eff = getEffectivePrice(book);
       const lineTotal = (eff.final || 0) * cart[id];
       total += lineTotal;
+      if(eff.final == null) hasUnpriced = true;
       items.push({ id: book.id, title: book.title, qty: cart[id], price: eff.final });
       const discNote = eff.pct > 0 ? ` (خصم ${eff.pct}%)` : '';
-      lines.push(`- ${book.title} (${book.author}) × ${cart[id]}${discNote} = ${fmtPrice(lineTotal)}`);
+      lines.push(`- ${book.title} (${book.author}) × ${cart[id]}${discNote} = ${fmtLine(eff, cart[id])}`);
     });
     const msg =
 `طلب جديد من موقع دار الكتاب العربي:
@@ -659,7 +664,7 @@
 الكتب المطلوبة:
 ${lines.join('\n')}
 
-المجموع: ${fmtPrice(total)}`;
+المجموع: ${fmtTotal(total, hasUnpriced)}`;
 
     const url = `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(msg)}`;
 

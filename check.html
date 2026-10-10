@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>فحص الموقع وقاعدة البيانات</title>
+<style>
+  body{font-family:Tahoma,Arial,sans-serif;background:#faf6ee;color:#2b2118;margin:0;padding:16px;line-height:1.7;}
+  .wrap{max-width:760px;margin:0 auto;}
+  h1{font-size:1.3rem;margin:.2em 0;} h2{font-size:1.05rem;margin:.2em 0 .5em;}
+  .card{background:#fff;border:1px solid #e3d9c6;border-radius:10px;padding:14px 16px;margin-bottom:14px;}
+  button{font-family:inherit;font-size:1rem;padding:10px 18px;border:none;border-radius:8px;background:#6b1f2a;color:#fff;cursor:pointer;font-weight:700;}
+  button:disabled{opacity:.5;}
+  input{font-family:inherit;font-size:1rem;padding:9px;border:1px solid #d6c9b0;border-radius:7px;width:100%;box-sizing:border-box;margin-bottom:8px;}
+  .row{border-top:1px solid #eee;padding:8px 0;} .row:first-child{border-top:none;}
+  .pass .t:before{content:"✅ ";} .fail .t:before{content:"❌ ";} .warn .t:before{content:"⚠️ ";} .info .t:before{content:"ℹ️ ";}
+  .fail .t{color:#a01818;font-weight:700;} .warn .t{color:#8a5a00;font-weight:700;} .pass .t{color:#1c6b2f;}
+  .d{font-size:.85rem;color:#6a5b48;} .fix{font-size:.88rem;background:#fff3d6;border-radius:6px;padding:6px 9px;margin-top:4px;}
+  #summary{font-weight:700;font-size:1.05rem;} code{background:#f1ead9;padding:1px 5px;border-radius:4px;direction:ltr;display:inline-block;}
+</style>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="supabase-config.js"></script>
+</head>
+<body>
+<div class="wrap">
+  <h1>🔍 فحص الموقع وقاعدة البيانات</h1>
+  <p class="d">هذه الصفحة تختبر موقعك الحقيقي وقاعدة بياناتك الحقيقية. الفحص الأول لا يحتاج تسجيل دخول. الفحص الثاني يجرّب الإضافة والتعديل والحذف والطلبات ورفع الصور بسجلات تجريبية تبدأ بـ <code>__TEST__</code> وتُحذف تلقائيًا. <strong>احذف هذه الصفحة (check.html) من الموقع بعد الانتهاء.</strong></p>
+
+  <div class="card">
+    <h2>1) فحص بدون تسجيل دخول (ما يراه الزائر)</h2>
+    <button id="runA" onclick="runA()">ابدأ الفحص 1</button>
+  </div>
+
+  <div class="card">
+    <h2>2) فحص كامل (بحساب المدير)</h2>
+    <input id="email" type="email" placeholder="بريد المدير" autocomplete="username">
+    <input id="pass" type="password" placeholder="كلمة المرور" autocomplete="current-password">
+    <button id="runB" onclick="runB()">ابدأ الفحص 2</button>
+  </div>
+
+  <div class="card"><div id="summary">لم يبدأ الفحص بعد.</div><div id="results"></div></div>
+</div>
+
+<script>
+  const db = window.dkaDb;
+  let counts = { pass: 0, fail: 0, warn: 0 };
+  const TEST_PREFIX = '__TEST__';
+  const FIX_SQL = 'شغّل ملف supabase-fix-schema.sql في Supabase → SQL Editor.';
+  const FIX_ORDERS = 'شغّل ملف supabase-orders.sql في Supabase → SQL Editor ثم: notify pgrst, \'reload schema\';';
+  const FIX_STORAGE = 'شغّل ملف supabase-storage.sql في Supabase → SQL Editor.';
+  const PNG_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+  const pngBlob = () => { const bin = atob(PNG_B64); const u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); return new Blob([u], { type: 'image/png' }); };
+  const esc = s => String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+
+  function add(status, title, detail, fix){
+    counts[status] = (counts[status] || 0) + 1;
+    const el = document.createElement('div');
+    el.className = 'row ' + status;
+    el.innerHTML = '<div class="t">' + esc(title) + '</div>' + (detail ? '<div class="d">' + esc(detail) + '</div>' : '') + (fix ? '<div class="fix">🔧 ' + esc(fix) + '</div>' : '');
+    document.getElementById('results').appendChild(el);
+    updateSummary();
+  }
+  function section(name){ const el = document.createElement('div'); el.className = 'row info'; el.innerHTML = '<div class="t"><strong>' + esc(name) + '</strong></div>'; document.getElementById('results').appendChild(el); }
+  function updateSummary(){
+    document.getElementById('summary').textContent = '✅ ' + counts.pass + ' ناجح   ❌ ' + counts.fail + ' فاشل   ⚠️ ' + counts.warn + ' تنبيه';
+  }
+  function reset(){ counts = { pass: 0, fail: 0, warn: 0 }; document.getElementById('results').innerHTML = ''; updateSummary(); }
+  const isRls = e => e && (e.code === '42501' || /row-level security|permission denied|not authorized|unauthorized/i.test(e.message || ''));
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  const anonClient = () => window.supabase.createClient(window.dkaConfig.url, window.dkaConfig.key, { auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false } });
+  async function guard(name, fn){ try { await fn(); } catch (e) { add('fail', name, 'خطأ غير متوقع: ' + (e && e.message ? e.message : e)); } }
+
+  // ================= PART A : visitor view =================
+  async function runA(){
+    reset(); document.getElementById('runA').disabled = true;
+    try {
+      section('الاتصال');
+      if (!db || !window.dkaConfig) { add('fail', 'مكتبة Supabase أو supabase-config.js لم تُحمَّل', '', 'تأكد أن supabase-config.js مرفوع بجانب هذه الصفحة وأن الإنترنت يعمل.'); return; }
+      add('pass', 'تم تحميل الإعدادات والمكتبة');
+      const anon = anonClient();
+
+      section('قراءة الكتب');
+      let first = null, rows = [];
+      await guard('قراءة الكتب', async () => {
+        const head = await anon.from('books').select('id', { count: 'exact', head: true });
+        if (head.error) { add('fail', 'لا يمكن قراءة جدول الكتب', head.error.message, 'فعّل Row Level Security وأضف سياسة القراءة للجميع: شغّل supabase-fix-schema.sql'); return; }
+        add(head.count > 0 ? 'pass' : 'warn', 'عدد الكتب في قاعدة البيانات: ' + head.count, head.count > 0 ? '' : 'الجدول فارغ أو أن الزائر لا يستطيع قراءته (سياسة القراءة ناقصة).', head.count > 0 ? '' : FIX_SQL);
+        const r = await anon.from('books').select('*').limit(200);
+        rows = r.data || []; first = rows[0] || null;
+        if (!first) return;
+        const keys = Object.keys(first);
+        const need = ['id', 'title', 'author', 'isbn', 'year', 'price', 'category', 'description'];
+        const missing = need.filter(k => !keys.includes(k));
+        add(missing.length ? 'fail' : 'pass', 'الأعمدة الأساسية ' + (missing.length ? 'ناقصة: ' + missing.join(', ') : 'موجودة'), '', missing.length ? 'أضف الأعمدة الناقصة إلى جدول books.' : '');
+        add(keys.includes('image_url') || keys.includes('images') ? 'pass' : 'fail', 'عمود الصور ' + (keys.includes('image_url') ? '(image_url)' : keys.includes('images') ? '(images)' : 'غير موجود'), '', keys.includes('image_url') || keys.includes('images') ? '' : 'أضف عمود image_url (text) إلى جدول books.');
+        add(keys.includes('discount') ? 'pass' : 'fail', 'عمود الخصم (discount) ' + (keys.includes('discount') ? 'موجود' : 'غير موجود'), '', keys.includes('discount') ? '' : FIX_SQL);
+        add(UUID_RE.test(String(first.id)) || /^\d+$/.test(String(first.id)) ? 'pass' : 'warn', 'نوع المعرّف: ' + (UUID_RE.test(String(first.id)) ? 'uuid' : /^\d+$/.test(String(first.id)) ? 'رقم' : 'نص'));
+        const noCat = rows.filter(b => !b.category).length, noTitle = rows.filter(b => !b.title).length;
+        add(noCat || noTitle ? 'warn' : 'pass', 'جودة البيانات (أول 200 كتاب): بلا تصنيف ' + noCat + '، بلا عنوان ' + noTitle, '', noCat || noTitle ? 'الكتب بلا تصنيف تظهر تحت «غير مصنف». عدّلها من لوحة الإدارة.' : '');
+      });
+      await guard('الإعدادات', async () => {
+        const s = await anon.from('settings').select('*').eq('id', 1).maybeSingle();
+        if (s.error) add('fail', 'جدول الإعدادات (settings) غير موجود أو غير مقروء', s.error.message, FIX_SQL);
+        else if (!s.data) add('fail', 'جدول settings موجود لكن السطر رقم 1 غير موجود', '', FIX_SQL);
+        else add('pass', 'الخصم العام الحالي: ' + s.data.discount_percent + '%');
+      });
+
+      section('الأمان (الزائر يجب ألا يستطيع تعديل أي شيء)');
+      await guard('أمان الكتب', async () => {
+        const ins = await anon.from('books').insert({ title: TEST_PREFIX + 'anon', category: '__test' }).select();
+        if (ins.error) add(isRls(ins.error) ? 'pass' : 'warn', 'الزائر لا يستطيع إضافة كتاب', isRls(ins.error) ? '' : 'رُفض لسبب آخر: ' + ins.error.message, isRls(ins.error) ? '' : 'تأكد من تفعيل RLS: ' + FIX_SQL);
+        else { add('fail', '🚨 خطر: أي زائر يستطيع إضافة كتب!', 'تم حذف الكتاب التجريبي.', 'فعّل RLS الآن: ' + FIX_SQL); for (const r of ins.data || []) await anon.from('books').delete().eq('id', r.id); }
+        if (first) {
+          const upd = await anon.from('books').update({ category: first.category }).eq('id', first.id).select();
+          if (upd.error) add(isRls(upd.error) ? 'pass' : 'warn', 'الزائر لا يستطيع تعديل كتاب', isRls(upd.error) ? '' : upd.error.message);
+          else if (upd.data && upd.data.length) add('fail', '🚨 خطر: أي زائر يستطيع تعديل كتبك!', '', 'فعّل RLS الآن: ' + FIX_SQL);
+          else add('pass', 'الزائر لا يستطيع تعديل الكتب');
+        }
+      });
+      await guard('أمان الإعدادات', async () => {
+        const s = await anon.from('settings').select('discount_percent').eq('id', 1).maybeSingle();
+        if (s.data) {
+          const u = await anon.from('settings').update({ discount_percent: s.data.discount_percent }).eq('id', 1).select();
+          if (u.data && u.data.length) add('fail', '🚨 خطر: أي زائر يستطيع تغيير الخصم العام!', '', FIX_SQL);
+          else add('pass', 'الزائر لا يستطيع تغيير الخصم العام');
+        }
+      });
+      await guard('أمان الطلبات', async () => {
+        const o = await anon.from('orders').insert({ name: TEST_PREFIX + 'anon', phone: '0', phone_norm: '0', items: [], total: 0 }).select();
+        if (o.error && /relation|does not exist|schema cache/i.test(o.error.message)) add('fail', 'جدول الطلبات (orders) غير موجود', o.error.message, FIX_ORDERS);
+        else if (o.error) add(isRls(o.error) ? 'pass' : 'warn', 'الزائر لا يستطيع كتابة طلبات مباشرة (يمرّ عبر الدالة فقط)', isRls(o.error) ? '' : o.error.message);
+        else { add('fail', '🚨 خطر: جدول الطلبات مفتوح للكتابة', 'تم حذف الطلب التجريبي.', FIX_ORDERS); for (const r of o.data || []) await anon.from('orders').delete().eq('id', r.id); }
+        const b = await anon.from('blocked_phones').insert({ phone: '000000000', note: TEST_PREFIX }).select();
+        if (b.error && /relation|does not exist|schema cache/i.test(b.error.message)) add('fail', 'جدول الأرقام المحظورة غير موجود', b.error.message, FIX_ORDERS);
+        else if (b.error) add(isRls(b.error) ? 'pass' : 'warn', 'الزائر لا يستطيع تعديل قائمة الحظر', isRls(b.error) ? '' : b.error.message);
+        else { add('fail', '🚨 خطر: أي زائر يستطيع التلاعب بقائمة الحظر', '', FIX_ORDERS); await anon.from('blocked_phones').delete().eq('phone', '000000000'); }
+      });
+      await guard('دالة الطلبات', async () => {
+        const r = await anon.rpc('place_order', { p_name: TEST_PREFIX, p_phone: '123', p_address: '', p_items: [], p_total: 0 });
+        if (r.error) add('fail', 'دالة تسجيل الطلبات place_order غير موجودة أو غير مسموحة', r.error.message, FIX_ORDERS);
+        else add(r.data === 'invalid' ? 'pass' : 'warn', 'دالة place_order تعمل (رفضت رقمًا غير صالح كما يجب)', 'الرد: ' + r.data);
+      });
+      await guard('أمان الصور', async () => {
+        const up = await anon.storage.from('book-images').upload('books/' + TEST_PREFIX + 'anon.png', pngBlob(), { contentType: 'image/png' });
+        if (up.error) {
+          if (/not found|bucket/i.test(up.error.message) && !isRls(up.error)) add('warn', 'مخزن الصور book-images غير موجود', up.error.message, 'إذا أردت رفع الصور من لوحة الإدارة: ' + FIX_STORAGE);
+          else add(isRls(up.error) ? 'pass' : 'warn', 'الزائر لا يستطيع رفع صور', isRls(up.error) ? '' : up.error.message);
+        } else { add('fail', '🚨 خطر: أي زائر يستطيع رفع ملفات إلى مخزن الصور', '', FIX_STORAGE); await anon.storage.from('book-images').remove(['books/' + TEST_PREFIX + 'anon.png']); }
+      });
+
+      section('ملفات الموقع على الاستضافة');
+      for (const f of ['index.html', 'admin.html', 'supabase-config.js', 'books-data.js']) {
+        await guard(f, async () => {
+          const r = await fetch(f, { cache: 'no-store' });
+          add(r.ok ? 'pass' : 'fail', f + (r.ok ? ' موجود' : ' غير موجود (' + r.status + ')'), '', r.ok ? '' : 'ارفع الملف إلى نفس مجلد هذه الصفحة.');
+        });
+      }
+      await guard('صفحات SEO', async () => {
+        if (!first) return;
+        const r = await fetch('books/' + first.id + '.html', { cache: 'no-store' });
+        add(r.ok ? 'pass' : 'warn', r.ok ? 'صفحات الكتب (books/…) موجودة' : 'صفحات الكتب books/ غير موجودة لهذا الكتاب (' + r.status + ')', r.ok ? '' : 'اختياري: للـ SEO فقط. أنشئها من لوحة الإدارة وارفع مجلد books.');
+      });
+      await guard('صور الكتب', async () => {
+        const rel = [];
+        rows.forEach(b => String(b.image_url || (Array.isArray(b.images) ? b.images.join(',') : '') || '').split(',').map(s => s.trim()).filter(Boolean).forEach(u => { if (!/^https?:/i.test(u)) rel.push(u); }));
+        const sample = rel.slice(0, 15); let miss = 0;
+        for (const u of sample) { try { const r = await fetch(u, { method: 'HEAD', cache: 'no-store' }); if (!r.ok) miss++; } catch (e) { miss++; } }
+        if (!sample.length) add('info', 'لا توجد صور بمسارات محلية للفحص');
+        else add(miss ? 'warn' : 'pass', 'صور الكتب المحلية: ' + (sample.length - miss) + ' موجودة من ' + sample.length + ' جُرّبت', miss ? 'مجلد images ناقص على الاستضافة. ارفعه أو ارفع الصور من لوحة الإدارة.' : '');
+        const lg = await fetch('logo.jpg', { method: 'HEAD', cache: 'no-store' }).catch(() => ({ ok: false }));
+        add(lg.ok ? 'pass' : 'warn', lg.ok ? 'logo.jpg موجود' : 'logo.jpg غير موجود', '', lg.ok ? '' : 'ارفع ملف الشعار logo.jpg بجانب index.html.');
+      });
+    } finally { document.getElementById('runA').disabled = false; }
+  }
+
+  // ================= PART B : admin =================
+  async function runB(){
+    reset(); document.getElementById('runB').disabled = true;
+    const cleanup = { bookIds: [], orderIds: [], blocked: [], files: [] };
+    try {
+      if (!db) { add('fail', 'supabase-config.js لم يُحمَّل'); return; }
+      section('تسجيل الدخول');
+      const email = document.getElementById('email').value.trim(), password = document.getElementById('pass').value;
+      const li = await db.auth.signInWithPassword({ email, password });
+      if (li.error) { add('fail', 'فشل تسجيل الدخول', li.error.message, 'تأكد من البريد وكلمة المرور (Supabase → Authentication → Users).'); return; }
+      add('pass', 'تم تسجيل دخول المدير');
+      const anon = anonClient();
+
+      section('الكتب (إضافة / تعديل / حذف)');
+      const probe = await db.from('books').select('*').limit(1);
+      const keys = probe.data && probe.data[0] ? Object.keys(probe.data[0]) : [];
+      const hasUrl = keys.includes('image_url'), hasImgs = keys.includes('images'), hasDisc = keys.includes('discount') || !keys.length;
+      const imgFields = a => { const o = {}; if (hasImgs) o.images = a; if (hasUrl) o.image_url = a.join(', '); if (!hasImgs && !hasUrl) o.image_url = a.join(', '); return o; };
+      let testId = null;
+      await guard('إضافة كتاب', async () => {
+        const row = { category: TEST_PREFIX + 'cat', isbn: '', author: 'مؤلف', title: TEST_PREFIX + 'كتاب', year: null, price: 123, description: '', ...imgFields([]) };
+        if (hasDisc) row.discount = 0;
+        const r = await db.from('books').insert(row).select().single();
+        if (r.error) { add('fail', 'تعذّرت إضافة كتاب (بالطريقة التي تستعملها لوحة الإدارة)', r.error.message, /discount/.test(r.error.message) ? FIX_SQL : 'أرسل لي هذه الرسالة حرفيًا.'); return; }
+        testId = r.data.id; cleanup.bookIds.push(testId);
+        add('pass', 'إضافة كتاب تعمل (المعرّف يُولَّد تلقائيًا، السنة فارغة مقبولة)');
+      });
+      if (testId) {
+        await guard('تعديل كتاب', async () => {
+          const patch = { price: 456, title: TEST_PREFIX + 'معدل', year: 2024, ...imgFields(['images/x.jpg', 'images/y.jpg']) };
+          if (hasDisc) patch.discount = 15;
+          const u = await db.from('books').update(patch).eq('id', testId).select();
+          if (u.error || !u.data || !u.data.length) add('fail', 'تعذّر تعديل كتاب', u.error ? u.error.message : 'لا توجد صلاحية (سياسة الكتابة للمدير ناقصة)', FIX_SQL);
+          else {
+            const row = u.data[0];
+            const ok = Number(row.price) === 456 && Number(row.year) === 2024 && (!hasDisc || Number(row.discount) === 15);
+            add(ok ? 'pass' : 'fail', 'تعديل السعر والسنة' + (hasDisc ? 'والخصم' : '') + 'والصور يعمل ويُحفظ بشكل صحيح');
+          }
+        });
+        await guard('حماية الكتاب من الزائر', async () => {
+          const u = await anon.from('books').update({ price: 1 }).eq('id', testId).select();
+          const d = await anon.from('books').delete().eq('id', testId).select();
+          const still = await db.from('books').select('price').eq('id', testId).maybeSingle();
+          const safe = !(u.data && u.data.length) && !(d.data && d.data.length) && still.data && Number(still.data.price) === 456;
+          add(safe ? 'pass' : 'fail', safe ? 'الزائر لا يستطيع تعديل أو حذف كتاب موجود' : '🚨 خطر: الزائر يستطيع تعديل أو حذف الكتب', '', safe ? '' : FIX_SQL);
+        });
+        await guard('حذف كتاب', async () => {
+          const d = await db.from('books').delete().eq('id', testId).select();
+          if (d.error || !d.data || !d.data.length) add('fail', 'تعذّر حذف كتاب', d.error ? d.error.message : 'لا توجد صلاحية', FIX_SQL);
+          else { cleanup.bookIds = cleanup.bookIds.filter(x => x !== testId); add('pass', 'حذف كتاب يعمل'); }
+        });
+      }
+
+      section('الإعدادات (الخصم العام)');
+      await guard('الخصم العام', async () => {
+        const cur = await db.from('settings').select('discount_percent').eq('id', 1).maybeSingle();
+        if (cur.error || !cur.data) { add('fail', 'لا يمكن قراءة جدول الإعدادات', cur.error ? cur.error.message : 'السطر 1 غير موجود', FIX_SQL); return; }
+        const u = await db.from('settings').upsert({ id: 1, discount_percent: cur.data.discount_percent }).select();
+        add(u.error || !u.data || !u.data.length ? 'fail' : 'pass', u.error || !u.data || !u.data.length ? 'تعذّر حفظ الخصم العام' : 'حفظ الخصم العام يعمل', u.error ? u.error.message : '', u.error ? FIX_SQL : '');
+      });
+
+      section('الطلبات وقائمة الحظر');
+      const testPhone = '0700000001', testNorm = '700000001';
+      await guard('قائمة الحظر', async () => {
+        const b = await db.from('blocked_phones').upsert({ phone: testNorm, note: TEST_PREFIX }).select();
+        if (b.error) { add('fail', 'تعذّر الحظر', b.error.message, FIX_ORDERS); return; }
+        cleanup.blocked.push(testNorm);
+        add('pass', 'إضافة رقم إلى قائمة الحظر تعمل');
+        const o = await anon.rpc('place_order', { p_name: TEST_PREFIX, p_phone: testPhone, p_address: 'x', p_items: [], p_total: 0 });
+        add(!o.error && o.data === 'blocked' ? 'pass' : 'fail', !o.error && o.data === 'blocked' ? 'الرقم المحظور يُرفض فعلًا عند الطلب' : 'الرقم المحظور لم يُرفض', o.error ? o.error.message : 'الرد: ' + (o.data || ''), !o.error && o.data === 'blocked' ? '' : FIX_ORDERS);
+        const ex = await db.from('orders').select('id').eq('phone_norm', testNorm);
+        add(!ex.data || ex.data.length === 0 ? 'pass' : 'fail', !ex.data || ex.data.length === 0 ? 'الطلب المحظور لم يُسجَّل' : 'طلب محظور سُجّل!');
+        const ub = await db.from('blocked_phones').delete().eq('phone', testNorm).select();
+        if (!ub.error) cleanup.blocked = cleanup.blocked.filter(x => x !== testNorm);
+        add(ub.error || !ub.data || !ub.data.length ? 'fail' : 'pass', ub.error || !ub.data || !ub.data.length ? 'تعذّر إلغاء الحظر' : 'إلغاء الحظر يعمل');
+      });
+      await guard('تسجيل طلب', async () => {
+        const items = [{ id: 'x', title: TEST_PREFIX + 'كتاب', qty: 2, price: 100 }];
+        const o = await anon.rpc('place_order', { p_name: TEST_PREFIX + 'زبون', p_phone: '0 700 00 00 02', p_address: 'عنوان', p_items: items, p_total: 200 });
+        if (o.error || o.data !== 'ok') { add('fail', 'تعذّر تسجيل طلب عادي من الزائر', o.error ? o.error.message : 'الرد: ' + o.data, FIX_ORDERS); return; }
+        add('pass', 'الزائر يستطيع تسجيل طلب عبر الدالة');
+        const ord = await db.from('orders').select('*').eq('phone_norm', '700000002');
+        const row = ord.data && ord.data[0];
+        if (!row) { add('fail', 'المدير لا يرى الطلب في جدول orders', ord.error ? ord.error.message : '', FIX_ORDERS); return; }
+        cleanup.orderIds.push(row.id);
+        add(row.name.startsWith(TEST_PREFIX) && Array.isArray(row.items) && row.items.length === 1 && Number(row.total) === 200 ? 'pass' : 'fail', 'المدير يرى الطلب بكل تفاصيله (الاسم، الكتب، المجموع)');
+        const anonSees = await anon.from('orders').select('id').eq('id', row.id);
+        add(!anonSees.data || anonSees.data.length === 0 ? 'pass' : 'fail', !anonSees.data || anonSees.data.length === 0 ? 'الزائر لا يستطيع قراءة الطلبات (بيانات الزبائن خاصة)' : '🚨 خطر: الزائر يستطيع قراءة طلبات الزبائن', '', anonSees.data && anonSees.data.length ? FIX_ORDERS : '');
+        const st = await db.from('orders').update({ status: 'confirmed' }).eq('id', row.id).select();
+        add(st.error || !st.data || !st.data.length ? 'fail' : 'pass', st.error || !st.data || !st.data.length ? 'تعذّر تغيير حالة الطلب' : 'تغيير حالة الطلب يعمل');
+        const dl = await db.from('orders').delete().eq('id', row.id).select();
+        if (!dl.error && dl.data && dl.data.length) cleanup.orderIds = cleanup.orderIds.filter(x => x !== row.id);
+        add(dl.error || !dl.data || !dl.data.length ? 'fail' : 'pass', dl.error || !dl.data || !dl.data.length ? 'تعذّر حذف الطلب' : 'حذف الطلب يعمل');
+      });
+
+      section('رفع الصور');
+      await guard('رفع الصور', async () => {
+        const path = 'books/' + TEST_PREFIX + Date.now() + '.png';
+        const up = await db.storage.from('book-images').upload(path, pngBlob(), { contentType: 'image/png' });
+        if (up.error) { add('fail', 'تعذّر رفع صورة كمدير', up.error.message, FIX_STORAGE); return; }
+        cleanup.files.push(path);
+        add('pass', 'رفع صورة إلى المخزن يعمل');
+        const url = db.storage.from('book-images').getPublicUrl(path).data.publicUrl;
+        const r = await fetch(url, { cache: 'no-store' }).catch(() => null);
+        add(r && r.ok && /image/.test(r.headers.get('content-type') || '') ? 'pass' : 'fail', r && r.ok ? 'الصورة المرفوعة تظهر للزوار عبر رابط عام' : 'رابط الصورة العام لا يعمل (' + (r ? r.status : 'لا اتصال') + ')', '', r && r.ok ? '' : 'تأكد أن المخزن book-images عام (public): ' + FIX_STORAGE);
+        const rm = await db.storage.from('book-images').remove([path]);
+        if (!rm.error) cleanup.files = cleanup.files.filter(x => x !== path);
+        add(rm.error ? 'fail' : 'pass', rm.error ? 'تعذّر حذف الصورة من المخزن' : 'حذف الصورة من المخزن يعمل', rm.error ? rm.error.message : '');
+      });
+    } finally {
+      // always clean up test records, even if something failed above
+      try {
+        for (const id of cleanup.bookIds) await db.from('books').delete().eq('id', id);
+        for (const id of cleanup.orderIds) await db.from('orders').delete().eq('id', id);
+        for (const p of cleanup.blocked) await db.from('blocked_phones').delete().eq('phone', p);
+        if (cleanup.files.length) await db.storage.from('book-images').remove(cleanup.files);
+        const left = await db.from('books').select('id').like('title', TEST_PREFIX + '%');
+        const leftO = await db.from('orders').select('id').like('name', TEST_PREFIX + '%');
+        const n = ((left.data || []).length) + ((leftO.data || []).length);
+        add(n === 0 ? 'pass' : 'warn', n === 0 ? 'تم حذف كل السجلات التجريبية' : 'بقي ' + n + ' سجل تجريبي (يبدأ بـ __TEST__)، احذفه يدويًا.');
+      } catch (e) { add('warn', 'تعذّر التنظيف التلقائي', e.message || String(e)); }
+      try { await db.auth.signOut(); add('info', 'تم تسجيل الخروج'); } catch (e) {}
+      add('info', counts.fail ? 'انتهى الفحص: يوجد ' + counts.fail + ' مشكلة تحتاج إصلاحًا (مع الحل تحت كل واحدة).' : 'انتهى الفحص: لا توجد أخطاء ✔');
+      document.getElementById('runB').disabled = false;
+    }
+  }
+</script>
+</body>
+</html>

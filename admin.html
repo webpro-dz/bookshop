@@ -30,7 +30,8 @@
   td input,td select{width:100%;padding:6px;border:1px solid var(--line);border-radius:6px;font-family:inherit;font-size:.84rem;}
   .row-actions button{font-size:.78rem;padding:5px 9px;border-radius:6px;border:1px solid var(--line);background:var(--card);cursor:pointer;margin-left:4px;}
   .row-actions .del{color:#a33;border-color:#e2b3b3;}
-  .cat-block{margin-bottom:34px;}
+  .cat-block{margin-bottom:34px;overflow-x:auto;-webkit-overflow-scrolling:touch;}
+  .cat-block table{min-width:720px;}
   .cat-block h2{font-size:1.05rem;color:var(--maroon-dark);display:flex;justify-content:space-between;align-items:center;}
   #add-book-form{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:18px;margin-bottom:24px;}
   #add-book-form h3{margin:0 0 12px;font-size:1rem;}
@@ -38,6 +39,12 @@
   .form-grid input,.form-grid select{padding:9px;border:1px solid var(--line);border-radius:7px;font-family:inherit;}
   .note{background:#fff6e0;border:1px solid #e6cf94;border-radius:8px;padding:12px 16px;font-size:.85rem;color:#6b551f;margin-bottom:20px;}
   .stat{color:#8a7458;font-size:.85rem;margin-bottom:16px;}
+  .thumbs{display:flex;gap:5px;flex-wrap:wrap;margin-bottom:6px;max-width:190px;}
+  .thumb{position:relative;display:inline-block;}
+  .thumb img{width:38px;height:52px;object-fit:cover;border-radius:3px;border:1px solid var(--line);background:#eee;display:block;}
+  .thumb button{position:absolute;top:-6px;left:-6px;width:18px;height:18px;border-radius:50%;border:none;background:#8a1c1c;color:#fff;font-size:12px;line-height:18px;padding:0;cursor:pointer;}
+  .upload-btn{display:inline-block;font-size:.78rem;padding:5px 9px;border-radius:6px;border:1px dashed var(--maroon);color:var(--maroon);background:var(--card);cursor:pointer;margin-bottom:5px;font-weight:700;}
+  .upload-btn.busy{opacity:.55;pointer-events:none;}
   .tabs{display:flex;gap:8px;margin-bottom:18px;flex-wrap:wrap;}
   .tab{padding:9px 18px;border:1px solid var(--line);background:var(--card);border-radius:8px;cursor:pointer;font-family:inherit;font-weight:700;}
   .tab.active{background:var(--maroon);color:#fff;border-color:var(--maroon);}
@@ -71,12 +78,13 @@
       <button class="tab active" id="tabbtn-books" onclick="showTab('books')">📚 الكتب</button>
       <button class="tab" id="tabbtn-orders" onclick="showTab('orders')">🧾 الطلبات</button>
       <button class="tab" id="tabbtn-blocked" onclick="showTab('blocked')">🚫 الأرقام المحظورة</button>
+      <button class="tab" id="tabbtn-diag" onclick="showTab('diag')">🔍 فحص النظام</button>
     </div>
 
     <div id="tab-books">
     <div class="note">
       ✅ هذه اللوحة مرتبطة بقاعدة بيانات <strong>Supabase</strong>: كل تعديل (إضافة، حذف، سعر، خصم، وصف…) يُحفظ مباشرة ويظهر للزبائن فورًا دون رفع أي ملف.
-      <br><br>📷 الصور: اكتب مسار الصورة كما في الاستضافة (مثال: <code>images/kitab1.jpg</code>) أو رابطًا كاملًا.
+      <br><br>📷 الصور: اضغط «رفع صورة» بجانب الكتاب واختر الصورة من جهازك (تُضغط وتُرفع تلقائيًا). يمكنك أيضًا كتابة مسار أو رابط يدويًا.
       <br><br>🔍 صفحات SEO الثابتة (مجلد books وخريطة الموقع) ما زالت تُولَّد بزر "تنزيل صفحات الكتب" ثم تُرفع إلى الاستضافة بعد إضافة كتب جديدة.
     </div>
 
@@ -112,7 +120,11 @@
         <input id="new-price" placeholder="السعر (دج)" type="number">
         <input id="new-cat" placeholder="التصنيف (موجود أو جديد) *" list="cat-options">
         <datalist id="cat-options"></datalist>
-        <input id="new-image" placeholder="أسماء الصور، افصل بفاصلة إن وجد أكثر من صورة (مثال: images/front.jpg, images/back.jpg)">
+        <div style="grid-column:1/-1;">
+          <label class="upload-btn" id="new-upload-btn">📷 رفع صور من الجهاز<input type="file" id="new-image-file" accept="image/*" multiple hidden onchange="uploadNewImages(this)"></label>
+          <div class="thumbs" id="new-image-preview"></div>
+        </div>
+        <input id="new-image" placeholder="أو اكتب مسار/رابط الصورة يدويًا (افصل بفاصلة إن وجد أكثر من صورة)">
         <input id="new-discount" type="number" min="0" max="90" placeholder="خصم خاص بهذا الكتاب % (اختياري)">
       </div>
       <textarea id="new-desc" placeholder="وصف الكتاب (يظهر عند ضغط الزبون على الكتاب)" rows="3" style="width:100%;padding:9px;border:1px solid var(--line);border-radius:7px;font-family:inherit;margin-bottom:12px;"></textarea>
@@ -126,6 +138,16 @@
     <div id="tab-orders" style="display:none;">
       <div class="toolbar"><button class="btn secondary" onclick="loadOrders()">↻ تحديث</button></div>
       <div class="panel-box" id="orders-box"></div>
+    </div>
+
+    <div id="tab-diag" style="display:none;">
+      <div class="panel-box">
+        <strong>فحص النظام الحقيقي</strong>
+        <p style="font-size:.85rem;color:#6b5a3e;">يختبر هذا الفحص قاعدة بياناتك الحقيقية: الأمان (هل يستطيع زائر تعديل الكتب أو قراءة الطلبات؟)، والدوال، وحظر الأرقام، ورفع الصور. يُنشئ سجلات تجريبية مؤقتة باسم <code>__diag__</code> ثم يحذفها تلقائيًا.</p>
+        <button class="btn" id="diag-run" onclick="runDiagnostics()">▶ تشغيل الفحص</button>
+        <button class="btn secondary" onclick="copyDiag()">نسخ التقرير</button>
+      </div>
+      <div class="panel-box" id="diag-box"><p style="color:#8a7458;">لم يُشغَّل الفحص بعد.</p></div>
     </div>
 
     <div id="tab-blocked" style="display:none;">
@@ -189,20 +211,30 @@
     alert('تعذّر الحفظ: ' + (e && e.message ? e.message : e));
   }
 
+  // year column is a number (bigint): send null when empty / not a number
+  function yearValue(v){
+    if(v === '' || v == null) return null;
+    const n = parseInt(String(v).replace(/\D/g, ''), 10);
+    return Number.isFinite(n) ? n : null;
+  }
+  const hasDiscountCol = () => !(window.dkaCols && window.dkaCols.discount === false);
+
   function rowOf(b, category){
-    return {
+    const row = {
       category,
-      isbn: b.isbn || '', author: b.author || '', title: b.title, year: b.year || '',
-      price: b.price == null ? null : Number(b.price),
-      discount: Number(b.discount) || 0,
-      images: Array.isArray(b.images) ? b.images : (b.image ? [b.image] : []),
+      isbn: b.isbn || '', author: b.author || '', title: b.title, year: yearValue(b.year),
+      price: b.price == null || b.price === '' ? null : Number(b.price),
+      ...window.dkaImageFields(Array.isArray(b.images) ? b.images : (b.image ? [b.image] : [])),
       description: b.description || ''
     };
+    if(hasDiscountCol()) row.discount = Number(b.discount) || 0;
+    return row;
   }
 
   async function saveGlobalDiscount(){
     const val = Number(document.getElementById('global-discount').value) || 0;
     const { data, error } = await db.from('settings').upsert({ id: 1, discount_percent: val }).select();
+    if(error && /settings/i.test(error.message || '')) return showError('جدول الإعدادات غير موجود. شغّل ملف supabase-fix-schema.sql في Supabase أولاً.');
     if(error || !data || !data.length) return showError(error || 'لا تملك صلاحية التعديل');
     SETTINGS.discountPercent = val;
     alert(val > 0 ? `تم تفعيل خصم عام بنسبة ${val}% على كل الكتب (ما عدا الكتب التي لها خصم خاص بها).` : 'تم إلغاء الخصم العام.');
@@ -214,7 +246,9 @@
     document.getElementById('add-book-form').style.display = 'block';
     document.getElementById('cat-options').innerHTML = DATA.map(c => `<option value="${escAttr(c.name)}">`).join('');
   }
-  function hideAddForm(){ document.getElementById('add-book-form').style.display = 'none'; }
+  function hideAddForm(){
+    document.getElementById('add-book-form').style.display = 'none';
+  }
 
   async function addBook(){
     const title = document.getElementById('new-title').value.trim();
@@ -226,7 +260,7 @@
       title,
       year: document.getElementById('new-year').value.trim(),
       price: document.getElementById('new-price').value ? Number(document.getElementById('new-price').value) : null,
-      images: parseImages(document.getElementById('new-image').value),
+      images: NEW_IMAGES.concat(parseImages(document.getElementById('new-image').value)),
       discount: Number(document.getElementById('new-discount').value) || 0,
       description: document.getElementById('new-desc').value.trim()
     };
@@ -243,6 +277,7 @@
     if(!c){ c = { name: cat, books: [] }; DATA.push(c); }
     c.books.push(book);
     ['new-title','new-author','new-isbn','new-year','new-price','new-cat','new-image','new-desc','new-discount'].forEach(id => document.getElementById(id).value = '');
+    NEW_IMAGES = []; renderNewPreview();
     hideAddForm();
     render();
   }
@@ -268,12 +303,17 @@
     if(!f) return;
     const b = f.book;
     if(field === 'price') value = value === '' ? null : Number(value);
-    if(field === 'discount') value = Number(value) || 0;
-    if(field === 'images') value = parseImages(value);
+    if(field === 'discount'){
+      if(!hasDiscountCol()){ alert('عمود الخصم غير موجود في جدول الكتب. شغّل ملف supabase-fix-schema.sql في Supabase أولاً.'); render(); return; }
+      value = Number(value) || 0;
+    }
+    if(field === 'year') value = yearValue(value);
+    if(field === 'images') value = Array.isArray(value) ? value : parseImages(value);
     if(field === 'title' && !String(value).trim()){ alert('العنوان لا يمكن أن يكون فارغًا.'); render(); return; }
-    const { data, error } = await db.from('books').update({ [field]: value }).eq('id', id).select();
+    const payload = field === 'images' ? window.dkaImageFields(value) : { [field]: value };
+    const { data, error } = await db.from('books').update(payload).eq('id', id).select();
     if(error || !data || !data.length) return showError(error || 'لا تملك صلاحية التعديل (سجّل الدخول من جديد)');
-    b[field] = value;
+    b[field] = field === 'year' ? (value == null ? '' : String(value)) : value;
     delete b.image;
     document.getElementById('stats').textContent = statsText();
   }
@@ -326,7 +366,11 @@
           <tbody>
             ${cat.books.map(b => `
               <tr>
-                <td><input value="${escAttr(imagesToStr(b))}" placeholder="images/x.jpg, images/y.jpg" onchange="updateField('${b.id}','images',this.value)" style="width:150px;"></td>
+                <td>
+                  <div class="thumbs">${imgsOf(b).map((src,i) => `<span class="thumb"><img src="${escAttr(src)}" alt=""><button type="button" title="حذف الصورة" onclick="removeImage('${b.id}',${i})">×</button></span>`).join('')}</div>
+                  <label class="upload-btn">📷 رفع صورة<input type="file" accept="image/*" multiple hidden onchange="uploadImages('${b.id}', this)"></label><br>
+                  <input value="${escAttr(imagesToStr(b))}" placeholder="مسار أو رابط" onchange="updateField('${b.id}','images',this.value)" style="width:150px;">
+                </td>
                 <td><input value="${escAttr(b.title)}" onchange="updateField('${b.id}','title',this.value)"></td>
                 <td><input value="${escAttr(b.author)}" onchange="updateField('${b.id}','author',this.value)"></td>
                 <td><input value="${escAttr(b.year)}" onchange="updateField('${b.id}','year',this.value)" style="width:70px;"></td>
@@ -370,9 +414,10 @@
     let coverHtml, ogImage = '';
     if(imgs.length){
       const firstUrl = imgs[0].startsWith('http') ? imgs[0] : `${SITE_DOMAIN}/${imgs[0]}`;
-      coverHtml = `<img class="cover" src="../${esc(imgs[0])}" alt="${title}">`;
+      const imgSrc = s => /^https?:/i.test(s) ? esc(s) : '../' + esc(s);
+      coverHtml = `<img class="cover" src="${imgSrc(imgs[0])}" alt="${title}">`;
       if(imgs.length > 1){
-        coverHtml += `<div class="cover-extra">${imgs.slice(1).map(src => `<img src="../${esc(src)}" alt="${title}">`).join('')}</div>`;
+        coverHtml += `<div class="cover-extra">${imgs.slice(1).map(src => `<img src="${imgSrc(src)}" alt="${title}">`).join('')}</div>`;
       }
       ogImage = `<meta property="og:image" content="${firstUrl}">`;
     } else {
@@ -466,24 +511,33 @@ ${ogImage}
     a.click();
   }
 
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
   function importFile(evt){
     const file = evt.target.files[0];
     if(!file) return;
-    if(!confirm('سيتم إضافة/تحديث الكتب الموجودة في الملف داخل قاعدة البيانات (الكتب التي لها نفس الرقم id ستُستبدل). متابعة؟')){ evt.target.value=''; return; }
+    if(!confirm('سيتم استيراد الكتب الموجودة في الملف إلى قاعدة البيانات.\nالكتب التي لها رقم مطابق لكتاب موجود ستُحدَّث، وأما الكتب ذات الأرقام القديمة (1، 2، 3…) فستُضاف ككتب جديدة وقد تتكرر إذا كانت موجودة سابقًا. متابعة؟')){ evt.target.value=''; return; }
     const reader = new FileReader();
     reader.onload = async () => {
       try{
         const text = reader.result;
         const imported = JSON.parse(text.substring(text.indexOf('['), text.lastIndexOf(']')+1));
-        const rows = [];
-        imported.forEach(c => c.books.forEach(b => rows.push({ id: b.id, ...rowOf(b, c.name) })));
-        for(let k = 0; k < rows.length; k += 100){
-          const { error } = await db.from('books').upsert(rows.slice(k, k+100));
+        const withId = [], withoutId = [];
+        imported.forEach(c => c.books.forEach(b => {
+          const row = rowOf(b, c.name);
+          if(UUID_RE.test(String(b.id))) withId.push({ id: b.id, ...row }); else withoutId.push(row);
+        }));
+        for(let k = 0; k < withId.length; k += 100){
+          const { error } = await db.from('books').upsert(withId.slice(k, k+100));
+          if(error) throw error;
+        }
+        for(let k = 0; k < withoutId.length; k += 100){
+          const { error } = await db.from('books').insert(withoutId.slice(k, k+100));
           if(error) throw error;
         }
         await loadData();
         render();
-        alert('تم استيراد ' + rows.length + ' كتاب بنجاح.');
+        alert('تم استيراد ' + (withId.length + withoutId.length) + ' كتاب بنجاح.');
       }catch(e){
         showError(e);
       }
@@ -504,6 +558,288 @@ ${ogImage}
     if(!pct || b.price == null) return { final: b.price, pct: 0 };
     return { final: Math.round(b.price * (1 - pct/100)), pct };
   }
+  // ---- IMAGE UPLOAD (Supabase Storage) ----
+  const IMG_BUCKET = 'book-images';
+  let NEW_IMAGES = [];
+  const imgsOf = b => Array.isArray(b.images) && b.images.length ? b.images.filter(Boolean) : (b.image ? [b.image] : []);
+
+  // shrink + convert to JPEG in the browser (phone photos of 4-8 MB become ~100-200 KB)
+  function compressImage(file, maxSide = 1000, quality = 0.82){
+    return new Promise((resolve, reject) => {
+      const url = URL.createObjectURL(file);
+      const img = new Image();
+      img.onload = () => {
+        const s = Math.min(1, maxSide / Math.max(img.width, img.height));
+        const w = Math.max(1, Math.round(img.width * s)), h = Math.max(1, Math.round(img.height * s));
+        const c = document.createElement('canvas'); c.width = w; c.height = h;
+        const ctx = c.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, w, h); ctx.drawImage(img, 0, 0, w, h);
+        URL.revokeObjectURL(url);
+        c.toBlob(b => b ? resolve(b) : reject(new Error('تعذّرت معالجة الصورة')), 'image/jpeg', quality);
+      };
+      img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('الملف ليس صورة صالحة (استعمل JPG أو PNG أو WEBP)')); };
+      img.src = url;
+    });
+  }
+
+  async function uploadOneImage(file){
+    if(!/^image\//.test(file.type)) throw new Error('الملف «' + file.name + '» ليس صورة.');
+    if(file.size > 20 * 1024 * 1024) throw new Error('الصورة «' + file.name + '» كبيرة جدًا (الحد 20 ميغابايت).');
+    const blob = await compressImage(file);
+    const path = 'books/' + Date.now() + '-' + Math.random().toString(36).slice(2, 8) + '.jpg';
+    const { error } = await db.storage.from(IMG_BUCKET).upload(path, blob, { contentType: 'image/jpeg', cacheControl: '31536000' });
+    if(error) throw error;
+    return db.storage.from(IMG_BUCKET).getPublicUrl(path).data.publicUrl;
+  }
+
+  async function uploadFiles(fileList){
+    const urls = [];
+    let failed = null;
+    for(const file of Array.from(fileList)){
+      try{ urls.push(await uploadOneImage(file)); }catch(e){ failed = e; }
+    }
+    if(failed) showError(failed);
+    return urls;
+  }
+
+  async function uploadImages(id, input){
+    const f = findBook(id);
+    const files = input.files;
+    if(!f || !files || !files.length) return;
+    const label = input.closest('label'); if(label) label.classList.add('busy');
+    const urls = await uploadFiles(files);
+    input.value = '';
+    if(urls.length) await updateField(id, 'images', imgsOf(f.book).concat(urls));
+    render();
+  }
+
+  function storagePathOf(url){
+    const m = String(url).match(/\/storage\/v1\/object\/public\/book-images\/(.+)$/);
+    return m ? decodeURIComponent(m[1]) : null;
+  }
+
+  async function removeImage(id, index){
+    const f = findBook(id);
+    if(!f) return;
+    if(!confirm('حذف هذه الصورة؟')) return;
+    const list = imgsOf(f.book).slice();
+    const [gone] = list.splice(index, 1);
+    await updateField(id, 'images', list);
+    const p = gone && storagePathOf(gone);
+    if(p) { try{ await db.storage.from(IMG_BUCKET).remove([p]); }catch(e){ console.warn(e); } }
+    render();
+  }
+
+  function renderNewPreview(){
+    const box = document.getElementById('new-image-preview');
+    if(!box) return;
+    box.innerHTML = NEW_IMAGES.map((src, i) => `<span class="thumb"><img src="${escAttr(src)}" alt=""><button type="button" title="إزالة" onclick="removeNewImage(${i})">×</button></span>`).join('');
+  }
+  async function uploadNewImages(input){
+    if(!input.files || !input.files.length) return;
+    const label = document.getElementById('new-upload-btn'); if(label) label.classList.add('busy');
+    const urls = await uploadFiles(input.files);
+    input.value = '';
+    NEW_IMAGES = NEW_IMAGES.concat(urls);
+    if(label) label.classList.remove('busy');
+    renderNewPreview();
+  }
+  function removeNewImage(i){
+    const [gone] = NEW_IMAGES.splice(i, 1);
+    const p = gone && storagePathOf(gone);
+    if(p) { db.storage.from(IMG_BUCKET).remove([p]).catch(() => {}); }
+    renderNewPreview();
+  }
+
+  // ---- SYSTEM CHECK (runs against the real Supabase project) ----
+  let DIAG_REPORT = '';
+  const TINY_PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+  const DIAG_PHONE = '000000001';   // 9 digits, never a real customer
+
+  async function runDiagnostics(){
+    const btn = document.getElementById('diag-run');
+    const box = document.getElementById('diag-box');
+    btn.disabled = true; box.innerHTML = '<p style="color:#8a7458;">جارٍ الفحص... (قد يستغرق دقيقة)</p>';
+    const R = [];
+    const add = (level, title, detail) => R.push({ level, title, detail: detail || '' });
+    const anon = window.supabase.createClient(window.dkaUrl, window.dkaKey, { auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false } });
+    const msg = e => (e && e.message) ? e.message : String(e);
+    const step = async (name, fn) => { try{ await fn(); }catch(e){ add('fail', name + ' — خطأ غير متوقع', msg(e)); } };
+    const cleanups = [];
+    const cleanup = async () => { for(const f of cleanups.reverse()){ try{ await f(); }catch(e){ console.warn('cleanup', e); } } };
+    let sampleBook = null, cols = [];
+
+    try{
+      const { data: sess } = await db.auth.getSession();
+      if(!sess || !sess.session){ add('fail', 'لست مسجّل الدخول كمدير', 'سجّل الدخول من جديد ثم أعد الفحص.'); throw new Error('stop'); }
+      add('ok', 'تسجيل الدخول كمدير يعمل');
+
+      // 1) books readable by visitors + columns
+      await step('قراءة الكتب', async () => {
+        const v = await anon.from('books').select('*').limit(1);
+        if(v.error) return add('fail', 'الزوار لا يستطيعون قراءة جدول الكتب', msg(v.error) + ' — شغّل supabase-fix-schema.sql.');
+        if(!v.data || !v.data.length) return add('warn', 'الجدول فارغ أو غير مقروء للزوار', 'تأكد أن سياسة القراءة العامة موجودة ("public read books").');
+        sampleBook = v.data[0]; cols = Object.keys(sampleBook);
+        add('ok', 'الزوار يستطيعون قراءة الكتب');
+        const need = ['title','author','price','category','year'];
+        const missing = need.filter(c => !cols.includes(c));
+        if(missing.length) add('fail', 'أعمدة ناقصة في جدول الكتب', missing.join(', '));
+        else add('ok', 'الأعمدة الأساسية موجودة (العنوان، المؤلف، السعر، التصنيف، السنة)');
+        if(!cols.includes('images') && !cols.includes('image_url')) add('fail', 'لا يوجد عمود للصور (images أو image_url)');
+        else add('ok', 'عمود الصور موجود: ' + (cols.includes('images') ? 'images ' : '') + (cols.includes('image_url') ? 'image_url' : ''));
+        if(!cols.includes('discount')) add('fail', 'عمود الخصم (discount) غير موجود', 'شغّل supabase-fix-schema.sql ليعمل خصم الكتاب الواحد.');
+        else add('ok', 'عمود الخصم موجود');
+      });
+
+      // 2) settings
+      await step('الإعدادات', async () => {
+        const s = await anon.from('settings').select('discount_percent').eq('id', 1).maybeSingle();
+        if(s.error) add('fail', 'جدول الإعدادات (settings) غير موجود أو غير مقروء', msg(s.error) + ' — شغّل supabase-fix-schema.sql.');
+        else if(!s.data) add('fail', 'صف الإعدادات (id = 1) غير موجود', 'شغّل supabase-fix-schema.sql.');
+        else add('ok', 'جدول الإعدادات (الخصم العام) يعمل');
+      });
+
+      // 3) SECURITY: visitors must NOT be able to write books
+      await step('أمان الكتب', async () => {
+        const ins = await anon.from('books').insert({ title: '__diag__', category: '__diag__' }).select();
+        if(!ins.error && ins.data && ins.data.length){
+          add('fail', '🚨 خطر: أي زائر يستطيع إضافة كتب!', 'فعّل Row Level Security واحذف أي سياسة تسمح للزوار بالكتابة، ثم شغّل supabase-fix-schema.sql.');
+          await db.from('books').delete().eq('title', '__diag__').eq('category', '__diag__');
+        } else add('ok', 'الزوار لا يستطيعون إضافة كتب');
+
+        if(sampleBook){
+          const upd = await anon.from('books').update({ title: sampleBook.title }).eq('id', sampleBook.id).select();
+          if(!upd.error && upd.data && upd.data.length) add('fail', '🚨 خطر: أي زائر يستطيع تعديل الكتب!', 'احذف سياسات الكتابة المفتوحة للزوار ثم شغّل supabase-fix-schema.sql.');
+          else add('ok', 'الزوار لا يستطيعون تعديل الكتب');
+        }
+        // delete test with a throw-away row created by the admin
+        const mk = await db.from('books').insert({ title: '__diag_del__', category: '__diag__' }).select();
+        if(mk.error || !mk.data || !mk.data.length){ add('fail', 'المدير لا يستطيع إضافة كتاب تجريبي', msg(mk.error) || 'تحقق من سياسة الكتابة للمدير ("admin write books").'); return; }
+        const rowId = mk.data[0].id;
+        cleanups.push(async () => { await db.from('books').delete().eq('id', rowId); });
+        add('ok', 'المدير يستطيع إضافة الكتب');
+        const del = await anon.from('books').delete().eq('id', rowId).select();
+        if(!del.error && del.data && del.data.length) add('fail', '🚨 خطر: أي زائر يستطيع حذف الكتب!', 'احذف سياسات الكتابة المفتوحة للزوار ثم شغّل supabase-fix-schema.sql.');
+        else add('ok', 'الزوار لا يستطيعون حذف الكتب');
+        const upd2 = await db.from('books').update({ title: '__diag_del__' }).eq('id', rowId).select();
+        if(upd2.error || !upd2.data || !upd2.data.length) add('fail', 'المدير لا يستطيع تعديل الكتب', msg(upd2.error));
+        else add('ok', 'المدير يستطيع تعديل الكتب');
+      });
+
+      // 4) PRIVACY: orders and blocked numbers must be invisible to visitors
+      await step('خصوصية الطلبات', async () => {
+        const o = await db.from('orders').insert({ name: '__diag__', phone: DIAG_PHONE, phone_norm: DIAG_PHONE, address: '', items: [], total: 0 }).select();
+        if(o.error || !o.data || !o.data.length){ add('fail', 'جدول الطلبات (orders) غير موجود أو لا يمكن الكتابة فيه', msg(o.error) + ' — شغّل supabase-orders.sql.'); return; }
+        const oid = o.data[0].id;
+        cleanups.push(async () => { await db.from('orders').delete().eq('id', oid); });
+        const seen = await anon.from('orders').select('id').eq('name', '__diag__');
+        if(!seen.error && seen.data && seen.data.length) add('fail', '🚨 خطر: بيانات الزبائن (الطلبات) ظاهرة لأي زائر!', 'فعّل Row Level Security على جدول orders وشغّل supabase-orders.sql.');
+        else add('ok', 'الزوار لا يستطيعون قراءة الطلبات');
+        const adminSees = await db.from('orders').select('id').eq('id', oid);
+        if(!adminSees.data || !adminSees.data.length) add('fail', 'المدير لا يستطيع قراءة الطلبات');
+        else add('ok', 'المدير يستطيع قراءة الطلبات');
+
+        const b = await db.from('blocked_phones').upsert({ phone: DIAG_PHONE, note: '__diag__' }).select();
+        if(b.error){ add('fail', 'جدول الأرقام المحظورة (blocked_phones) غير موجود', msg(b.error) + ' — شغّل supabase-orders.sql.'); return; }
+        cleanups.push(async () => { await db.from('blocked_phones').delete().eq('phone', DIAG_PHONE); });
+        const bs = await anon.from('blocked_phones').select('phone').eq('phone', DIAG_PHONE);
+        if(!bs.error && bs.data && bs.data.length) add('fail', '🚨 خطر: قائمة الأرقام المحظورة ظاهرة للزوار!', 'شغّل supabase-orders.sql لتفعيل الحماية.');
+        else add('ok', 'الزوار لا يستطيعون قراءة الأرقام المحظورة');
+      });
+
+      // 5) the order function, end to end, with the real SQL
+      await step('دالة الطلب', async () => {
+        const call = (phone, name) => anon.rpc('place_order', { p_name: name || '__diag__', p_phone: phone, p_address: '', p_items: [{ id: 'x', title: '__diag__', qty: 1, price: 1 }], p_total: 1 });
+        const inv = await call('12345');
+        if(inv.error){ add('fail', 'دالة place_order غير موجودة أو لا يمكن استدعاؤها', msg(inv.error) + ' — شغّل supabase-orders.sql ثم notify pgrst, \'reload schema\'.'); return; }
+        if(inv.data === 'invalid') add('ok', 'دالة الطلب تعمل وترفض الأرقام غير الصالحة');
+        else add('fail', 'دالة الطلب أعادت نتيجة غير متوقعة للرقم غير الصالح', String(inv.data));
+        // the diag number was inserted as blocked in the previous step
+        const forms = ['0000000001', '+213000000001', '00 213 000 000 001', '(0)00-000-0001'];
+        let allBlocked = true;
+        for(const f of forms){ const r = await call(f); if(r.error || r.data !== 'blocked'){ allBlocked = false; add('fail', 'الرقم المحظور لم يُرفض بصيغة: ' + f, r.error ? msg(r.error) : String(r.data)); } }
+        if(allBlocked) add('ok', 'الأرقام المحظورة تُرفض بكل الصيغ (0…، +213…، 00213…)');
+        // unblock then a real order must succeed and be stored
+        await db.from('blocked_phones').delete().eq('phone', DIAG_PHONE);
+        const okc = await call('0999999999');
+        if(okc.error || okc.data !== 'ok') add('fail', 'تعذّر تسجيل طلب عادي', okc.error ? msg(okc.error) : String(okc.data));
+        else {
+          const row = await db.from('orders').select('*').eq('phone_norm', '999999999').eq('name', '__diag__');
+          const rid = row.data && row.data[0] && row.data[0].id;
+          if(rid) cleanups.push(async () => { await db.from('orders').delete().eq('id', rid); });
+          if(row.data && row.data.length && Array.isArray(row.data[0].items) && row.data[0].items.length === 1) add('ok', 'الطلب العادي يُسجَّل بشكل صحيح في قاعدة البيانات');
+          else add('fail', 'الطلب لم يُسجَّل كما ينبغي', JSON.stringify(row.data).slice(0, 200));
+        }
+      });
+
+      // 6) storage
+      await step('تخزين الصور', async () => {
+        const bytes = Uint8Array.from(atob(TINY_PNG), c => c.charCodeAt(0));
+        const blob = new Blob([bytes], { type: 'image/png' });
+        const path = 'diag/test-' + Date.now() + '.png';
+        const up = await db.storage.from(IMG_BUCKET).upload(path, blob, { contentType: 'image/png' });
+        if(up.error){ add('fail', 'رفع الصور لا يعمل', msg(up.error) + ' — شغّل supabase-storage.sql.'); return; }
+        cleanups.push(async () => { await db.storage.from(IMG_BUCKET).remove([path]); });
+        add('ok', 'المدير يستطيع رفع الصور');
+        const url = db.storage.from(IMG_BUCKET).getPublicUrl(path).data.publicUrl;
+        try{
+          const resp = await fetch(url, { cache: 'no-store' });
+          if(resp.ok && /image/.test(resp.headers.get('content-type') || '')) add('ok', 'رابط الصورة العام يفتح للزوار');
+          else add('fail', 'رابط الصورة العام لا يفتح', 'الحالة: ' + resp.status + ' — تأكد أن الحاوية (bucket) عامة (public).');
+        }catch(e){ add('fail', 'تعذّر فتح رابط الصورة العام', msg(e)); }
+        const up2 = await anon.storage.from(IMG_BUCKET).upload('diag/visitor-' + Date.now() + '.png', blob, { contentType: 'image/png' });
+        if(!up2.error){
+          add('fail', '🚨 خطر: أي زائر يستطيع رفع ملفات على التخزين!', 'شغّل supabase-storage.sql لضبط السياسات.');
+          if(up2.data && up2.data.path) await db.storage.from(IMG_BUCKET).remove([up2.data.path]);
+        } else add('ok', 'الزوار لا يستطيعون رفع ملفات');
+      });
+
+      // 7) site configuration
+      await step('إعدادات الموقع', async () => {
+        try{
+          const r = await fetch('index.html', { cache: 'no-store' });
+          if(r.ok){
+            const t = await r.text();
+            const m = t.match(/const WHATSAPP_NUMBER\s*=\s*"(\d+)"/);
+            if(m && m[1] !== WHATSAPP_NUMBER) add('fail', 'رقم واتساب مختلف بين الموقع والإدارة', 'الموقع: ' + m[1] + ' — الإدارة: ' + WHATSAPP_NUMBER);
+            else if(m) add('ok', 'رقم واتساب متطابق في الموقع والإدارة (' + m[1] + ')');
+          }
+        }catch(e){ /* index.html not reachable from here: ignore */ }
+        if(location.origin !== SITE_DOMAIN && location.protocol.startsWith('http') && !/^(localhost|127\.)/.test(location.hostname))
+          add('warn', 'عنوان الموقع في صفحات SEO مختلف عن العنوان الحالي', 'الحالي: ' + location.origin + ' — في الكود: ' + SITE_DOMAIN + ' (غيّر SITE_DOMAIN في admin.html إذا كان هذا هو الموقع الرئيسي).');
+        else add('ok', 'عنوان الموقع في صفحات SEO متوافق');
+        add('warn', 'تحقق يدويًا', 'في Supabase → Authentication → Sign In / Providers: عطّل "Allow new users to sign up" حتى لا يُنشئ الغرباء حسابات.');
+      });
+
+      // 8) data quality hints
+      if(DATA.length){
+        const all = DATA.flatMap(c => c.books);
+        const noPrice = all.filter(b => b.price == null).length;
+        const noImg = all.filter(b => !imgsOf(b).length).length;
+        add('ok', 'عدد الكتب: ' + all.length + ' في ' + DATA.length + ' تصنيفات');
+        if(noPrice) add('warn', noPrice + ' كتاب بلا سعر', 'تظهر هذه الكتب بدون سعر للزبون.');
+        if(noImg) add('warn', noImg + ' كتاب بلا صورة', 'تظهر بأيقونة 📖 بدل الغلاف.');
+      }
+    }catch(e){
+      if(msg(e) !== 'stop') add('fail', 'توقف الفحص', msg(e));
+    }
+    await cleanup();
+
+    const fails = R.filter(r => r.level === 'fail').length, warns = R.filter(r => r.level === 'warn').length;
+    const icon = { ok: '✅', warn: '⚠️', fail: '❌' };
+    DIAG_REPORT = 'فحص النظام — ' + new Date().toLocaleString('ar-DZ') + '\n' +
+      R.map(r => icon[r.level] + ' ' + r.title + (r.detail ? ' | ' + r.detail : '')).join('\n') +
+      '\nالنتيجة: ' + (fails ? fails + ' مشكلة' : 'لا توجد مشاكل') + (warns ? '، ' + warns + ' تنبيه' : '');
+    box.innerHTML = `<p style="font-weight:700;color:${fails ? '#8a1c1c' : '#2a6b2a'};">${fails ? '❌ ' + fails + ' مشكلة تحتاج إصلاحًا' : '✅ لا توجد مشاكل'}${warns ? ' — ' + warns + ' تنبيه' : ''}</p>` +
+      R.map(r => `<div style="padding:7px 0;border-bottom:1px solid var(--line);${r.level === 'fail' ? 'color:#8a1c1c;' : ''}">${icon[r.level]} <strong>${esc(r.title)}</strong>${r.detail ? `<div style="font-size:.8rem;color:#6b5a3e;margin-top:3px;">${esc(r.detail)}</div>` : ''}</div>`).join('');
+    btn.disabled = false;
+  }
+
+  function copyDiag(){
+    if(!DIAG_REPORT){ alert('شغّل الفحص أولاً.'); return; }
+    if(navigator.clipboard && navigator.clipboard.writeText){ navigator.clipboard.writeText(DIAG_REPORT).then(() => alert('تم نسخ التقرير.'), () => prompt('انسخ التقرير:', DIAG_REPORT)); }
+    else prompt('انسخ التقرير:', DIAG_REPORT);
+  }
+
   // ---- ORDERS & BLOCKED NUMBERS ----
   const STATUS = { new:'جديد', confirmed:'مؤكد', delivered:'تم التسليم', cancelled:'ملغى', fake:'مزيف' };
   const esc = s => (s==null?'':String(s)).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
@@ -511,7 +847,7 @@ ${ogImage}
   let ORDERS = [], BLOCKED = [];
 
   function showTab(name){
-    ['books','orders','blocked'].forEach(t => {
+    ['books','orders','blocked','diag'].forEach(t => {
       document.getElementById('tab-'+t).style.display = t === name ? 'block' : 'none';
       document.getElementById('tabbtn-'+t).classList.toggle('active', t === name);
     });
