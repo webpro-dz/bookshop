@@ -948,5 +948,145 @@ ${ogImage}
     await loadBlocked();
   }
 </script>
+<!-- ===== Built-in multilingual keyboard (Arabic / English / Français) for touch devices ===== -->
+<script>
+(function(){
+  if(!window.matchMedia('(pointer:coarse)').matches) return;   // phones & tablets only
+
+  const ROWS = {
+    ar:[[...'1234567890'],[...'ضصثقفغعهخحجد'],[...'شسيبلاتنمكط'],['ئ','ء','ؤ','ر','ى','ة','و','ز','ظ','ذ','لا']],
+    en:[[...'1234567890'],[...'qwertyuiop'],[...'asdfghjkl'],[...'zxcvbnm']],
+    fr:[[...'1234567890'],[...'qwertyuiop'],[...'asdfghjkl'],[...'zxcvbnm'],[...'éèêàâçùûôîï']]
+  };
+  const NAMES = {ar:'عربي', en:'English', fr:'Français'};
+  const SKIP_TYPES = ['tel','number','email','password','file','date','time','datetime-local','checkbox','radio','range','color','hidden','url','submit','button'];
+  let lang = 'ar', shift = false, target = null, useNative = false, switching = false, startVal = '';
+  try { lang = localStorage.getItem('dka_kb_lang') || 'ar'; } catch(e){}
+
+  function eligible(t){
+    if(!t || !t.tagName) return false;
+    if(t.readOnly || t.disabled || t.dataset.novk !== undefined) return false;
+    if(t.tagName === 'TEXTAREA') return true;
+    if(t.tagName !== 'INPUT') return false;
+    return !SKIP_TYPES.includes((t.getAttribute('type') || 'text').toLowerCase());
+  }
+
+  const st = document.createElement('style');
+  st.textContent = `
+    #vk{position:fixed;left:0;right:0;bottom:0;z-index:99999;display:none;direction:ltr;
+        background:#2a1c14;padding:6px 4px calc(6px + env(safe-area-inset-bottom));
+        box-shadow:0 -4px 16px rgba(0,0,0,.3);user-select:none;-webkit-user-select:none;}
+    #vk.show{display:block}
+    #vk .vk-row{display:flex;gap:4px;margin-bottom:5px;justify-content:center}
+    #vk button{flex:1;min-width:0;padding:11px 0;font-size:18px;border:0;border-radius:6px;
+        background:#f6efe2;color:#2a1c14;font-family:Tajawal,sans-serif;touch-action:manipulation;cursor:pointer}
+    #vk button:active{background:#e0d2b4}
+    #vk button.fn{background:#7a1f2b;color:#fff}
+    #vk button.on{background:#c9a24a;color:#2a1c14;font-weight:700}
+    #vk button.wide{flex:4}
+  `;
+  document.head.appendChild(st);
+
+  const vk = document.createElement('div');
+  vk.id = 'vk';
+  vk.addEventListener('pointerdown', e => e.preventDefault());   // keep focus in the field
+  vk.addEventListener('mousedown',   e => e.preventDefault());
+  document.body.appendChild(vk);
+
+  function btn(label, attrs, cls){
+    const b = document.createElement('button');
+    b.type = 'button'; b.textContent = label;
+    if(cls) b.className = cls;
+    for(const k in attrs) b.dataset[k] = attrs[k];
+    return b;
+  }
+
+  function render(){
+    vk.innerHTML = '';
+    const bar = document.createElement('div'); bar.className = 'vk-row';
+    Object.keys(NAMES).forEach(l => bar.appendChild(btn(NAMES[l], {lang:l}, l===lang ? 'on' : '')));
+    bar.appendChild(btn('📱', {act:'native'}, 'fn'));
+    bar.appendChild(btn('✕', {act:'close'}, 'fn'));
+    vk.appendChild(bar);
+    ROWS[lang].forEach(r => {
+      const row = document.createElement('div'); row.className = 'vk-row';
+      r.forEach(k => {
+        const ch = (shift && lang!=='ar') ? k.toUpperCase() : k;
+        row.appendChild(btn(ch, {k:ch}));
+      });
+      vk.appendChild(row);
+    });
+    const bot = document.createElement('div'); bot.className = 'vk-row';
+    if(lang !== 'ar') bot.appendChild(btn('⇧', {act:'shift'}, shift ? 'on' : 'fn'));
+    bot.appendChild(btn('⌫', {act:'bksp'}, 'fn'));
+    bot.appendChild(btn(NAMES[lang], {k:' '}, 'wide'));
+    bot.appendChild(btn(lang==='ar' ? '،' : ',', {k: lang==='ar' ? '،' : ','}));
+    bot.appendChild(btn('.', {k:'.'}));
+    if(target && target.tagName === 'TEXTAREA') bot.appendChild(btn('↵', {k:'\n'}));
+    bot.appendChild(btn('✓', {act:'done'}, 'fn'));
+    vk.appendChild(bot);
+  }
+
+  function fire(){ target.dispatchEvent(new Event('input', {bubbles:true})); }
+  function insert(s){
+    const t = target; if(!t) return;
+    const a = t.selectionStart ?? t.value.length, b = t.selectionEnd ?? a;
+    t.value = t.value.slice(0,a) + s + t.value.slice(b);
+    t.setSelectionRange(a+s.length, a+s.length);
+    fire();
+  }
+  function backspace(){
+    const t = target; if(!t) return;
+    const a = t.selectionStart ?? t.value.length, b = t.selectionEnd ?? a;
+    if(a !== b){ t.value = t.value.slice(0,a) + t.value.slice(b); t.setSelectionRange(a,a); }
+    else if(a > 0){ t.value = t.value.slice(0,a-1) + t.value.slice(a); t.setSelectionRange(a-1,a-1); }
+    fire();
+  }
+  function applyLang(){ if(target){ target.dir = lang==='ar' ? 'rtl' : 'ltr'; target.lang = lang; } }
+  function show(){
+    render(); applyLang();
+    vk.classList.add('show');
+    document.body.style.paddingBottom = vk.offsetHeight + 'px';
+    setTimeout(() => target && target.scrollIntoView({block:'center', behavior:'smooth'}), 50);
+  }
+  function hide(){ vk.classList.remove('show'); document.body.style.paddingBottom = ''; }
+
+  vk.addEventListener('click', e => {
+    const b = e.target.closest('button'); if(!b) return;
+    const d = b.dataset;
+    if(d.lang){ lang = d.lang; shift = false; try{ localStorage.setItem('dka_kb_lang', lang); }catch(e){} show(); }
+    else if(d.act === 'shift'){ shift = !shift; render(); }
+    else if(d.act === 'bksp'){ backspace(); }
+    else if(d.act === 'done' || d.act === 'close'){ target && target.blur(); }
+    else if(d.act === 'native'){
+      switching = true; useNative = true; hide();
+      const t = target; t.blur();
+      setTimeout(() => { t.inputMode = 'text'; t.focus(); switching = false; }, 60);
+    }
+    else if(d.k !== undefined){ insert(d.k); if(shift){ shift = false; render(); } }
+  });
+
+  // Suppress the phone keyboard BEFORE focus happens (prevents a flash)
+  document.addEventListener('pointerdown', e => {
+    if(!useNative && eligible(e.target)) e.target.inputMode = 'none';
+  }, true);
+
+  document.addEventListener('focusin', e => {
+    const t = e.target;
+    if(!eligible(t)) return;
+    target = t; startVal = t.value;
+    if(useNative){ t.inputMode = 'text'; return; }
+    t.inputMode = 'none';
+    show();
+  });
+  document.addEventListener('focusout', e => {
+    const t = e.target;
+    if(!eligible(t) || switching) return;
+    // Typing via script doesn't trigger 'change' by itself — fire it so onchange="..." handlers (admin tables) work
+    if(t.value !== startVal){ t.dispatchEvent(new Event('change', {bubbles:true})); }
+    hide(); useNative = false; t.inputMode = 'none';
+  });
+})();
+</script>
 </body>
 </html>
